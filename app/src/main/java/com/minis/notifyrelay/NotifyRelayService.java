@@ -21,8 +21,6 @@ public class NotifyRelayService extends Service {
     private static final String TAG = "NotifyRelay";
     private static final int PORT = 9530;
     private static final String CHANNEL_ID = "panel_notify";
-    private static final String FG_CHANNEL_ID = "fg_service";
-    private static final int FG_NOTIF_ID = 1;
     private static final int NOTIF_ID_BASE = 9000;
     private int notifIdCounter = 0;
 
@@ -39,11 +37,10 @@ public class NotifyRelayService extends Service {
     public void onCreate() {
         super.onCreate();
         startTime = System.currentTimeMillis();
-        createNotificationChannels();
-        startForeground(FG_NOTIF_ID, createFgNotification());
+        createNotificationChannel();
         running = true;
         startServer();
-        Log.i(TAG, "NotifyRelayService started on port " + PORT);
+        Log.i(TAG, "Service started on port " + PORT);
     }
 
     @Override
@@ -58,16 +55,7 @@ public class NotifyRelayService extends Service {
         super.onDestroy();
     }
 
-    private Notification createFgNotification() {
-        return new Notification.Builder(this, FG_CHANNEL_ID)
-            .setContentTitle("通知中转服务运行中")
-            .setContentText("监听端口 " + PORT)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setOngoing(true)
-            .build();
-    }
-
-    private void createNotificationChannels() {
+    private void createNotificationChannel() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm == null) return;
         NotificationChannel chan = new NotificationChannel(CHANNEL_ID, "面板通知", NotificationManager.IMPORTANCE_HIGH);
@@ -76,25 +64,23 @@ public class NotifyRelayService extends Service {
         chan.setShowBadge(true);
         chan.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         nm.createNotificationChannel(chan);
-        NotificationChannel fg = new NotificationChannel(FG_CHANNEL_ID, "服务状态", NotificationManager.IMPORTANCE_LOW);
-        nm.createNotificationChannel(fg);
     }
 
     private void startServer() {
         serverThread = new Thread(() -> {
             try {
                 serverSocket = new ServerSocket(PORT, 50, InetAddress.getByName("0.0.0.0"));
-                Log.i(TAG, "HTTP server listening on 0.0.0.0:" + PORT);
+                Log.i(TAG, "HTTP server on 0.0.0.0:" + PORT);
                 while (running) {
                     try {
                         Socket client = serverSocket.accept();
                         new Thread(() -> handleClient(client)).start();
                     } catch (IOException e) {
-                        if (running) Log.e(TAG, "Accept error: " + e.getMessage());
+                        if (running) Log.e(TAG, "Accept: " + e.getMessage());
                     }
                 }
             } catch (IOException e) {
-                Log.e(TAG, "Server error: " + e.getMessage());
+                Log.e(TAG, "Server: " + e.getMessage());
             }
         });
         serverThread.start();
