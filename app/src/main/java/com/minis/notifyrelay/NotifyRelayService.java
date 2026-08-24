@@ -11,6 +11,7 @@ import android.os.IBinder;
 import android.util.Log;
 
 import java.io.*;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.text.SimpleDateFormat;
@@ -39,10 +40,10 @@ public class NotifyRelayService extends Service {
         super.onCreate();
         startTime = System.currentTimeMillis();
         createNotificationChannels();
-        startForeground();
+        startForeground(FG_NOTIF_ID, createFgNotification());
         running = true;
         startServer();
-        Log.i(TAG, "Service started on port " + PORT);
+        Log.i(TAG, "NotifyRelayService started on port " + PORT);
     }
 
     @Override
@@ -57,40 +58,33 @@ public class NotifyRelayService extends Service {
         super.onDestroy();
     }
 
+    private Notification createFgNotification() {
+        return new Notification.Builder(this, FG_CHANNEL_ID)
+            .setContentTitle("通知中转服务运行中")
+            .setContentText("监听端口 " + PORT)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setOngoing(true)
+            .build();
+    }
+
     private void createNotificationChannels() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm == null) return;
-        // 通知渠道 - 高优先级弹横幅
         NotificationChannel chan = new NotificationChannel(CHANNEL_ID, "面板通知", NotificationManager.IMPORTANCE_HIGH);
         chan.enableVibration(true);
         chan.enableLights(true);
         chan.setShowBadge(true);
         chan.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         nm.createNotificationChannel(chan);
-        // 前台服务渠道 - 低优先级
         NotificationChannel fg = new NotificationChannel(FG_CHANNEL_ID, "服务状态", NotificationManager.IMPORTANCE_LOW);
         nm.createNotificationChannel(fg);
-    }
-
-    private void startForeground() {
-        Notification notif = new Notification.Builder(this, FG_CHANNEL_ID)
-            .setContentTitle("通知中转服务运行中")
-            .setContentText("监听端口 9530")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setOngoing(true)
-            .build();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(FG_NOTIF_ID, notif, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-        } else {
-            startForeground(FG_NOTIF_ID, notif);
-        }
     }
 
     private void startServer() {
         serverThread = new Thread(() -> {
             try {
-                serverSocket = new ServerSocket(PORT, 50, java.net.InetAddress.getByName("0.0.0.0"));
-                Log.i(TAG, "HTTP server on " + PORT);
+                serverSocket = new ServerSocket(PORT, 50, InetAddress.getByName("0.0.0.0"));
+                Log.i(TAG, "HTTP server listening on 0.0.0.0:" + PORT);
                 while (running) {
                     try {
                         Socket client = serverSocket.accept();
