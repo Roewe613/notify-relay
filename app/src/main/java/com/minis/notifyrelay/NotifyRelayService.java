@@ -89,7 +89,7 @@ public class NotifyRelayService extends Service {
     private void startServer() {
         serverThread = new Thread(() -> {
             try {
-                serverSocket = new ServerSocket(PORT);
+                serverSocket = new ServerSocket(PORT, 50, java.net.InetAddress.getByName("0.0.0.0"));
                 Log.i(TAG, "HTTP server on " + PORT);
                 while (running) {
                     try {
