@@ -1,0 +1,41 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        api-level: 34
+        build-ure: '34.0.0'
+
+    - name: Create gradle wrapper
+      run: |
+        cd /tmp
+        wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
+        unzip -q gradle-8.5-bin.zip
+        cd $GITHUB_WORKSPACE
+        /tmp/gradle-8.5/bin/gradle wrapper --gradle-version 8.5
+
+    - name: Build APK
+      run: ./gradlew assembleDebug
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: notify-relay-apk
+        path: app/build/outputs/apk/debug/*.apk
