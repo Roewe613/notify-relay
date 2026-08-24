@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
@@ -19,8 +20,9 @@ import java.util.*;
 
 public class NotifyRelayService extends Service {
     private static final String TAG = "NotifyRelay";
-    private static final int PORT = 9530;
     private static final String CHANNEL_ID = "panel_notify";
+    private static final String FG_CHANNEL_ID = "fg_service";
+    private static final int FG_NOTIF_ID = 1;
     private static final int NOTIF_ID_BASE = 9000;
     private int notifIdCounter = 0;
 
@@ -29,6 +31,7 @@ public class NotifyRelayService extends Service {
     private volatile boolean running = false;
     private final List<String> recent = Collections.synchronizedList(new ArrayList<>());
     private long startTime;
+    private int port = 9531;
 
     @Override
     public IBinder onBind(Intent intent) { return null; }
@@ -37,14 +40,31 @@ public class NotifyRelayService extends Service {
     public void onCreate() {
         super.onCreate();
         startTime = System.currentTimeMillis();
-        createNotificationChannel();
+        SharedPreferences prefs = getSharedPreferences("notify_relay", MODE_PRIVATE);
+        port = prefs.getInt("port", 9531);
+        createNotificationChannels();
+        startForeground(FG_NOTIF_ID, createFgNotification());
         running = true;
         startServer();
-        Log.i(TAG, "Service started on port " + PORT);
+        Log.i(TAG, "Service started on port " + port);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && intent.hasExtra("port")) {
+            int newPort = intent.getIntExtra("port", 9531);
+            if (newPort != port) {
+                // 重启server用新端口
+                running = false;
+                if (serverSocket != null) try { serverSocket.close(); } catch (IOException e) {}
+                SharedPreferences prefs = getSharedPreferences("notify_relay", MODE_PRIVATE);
+                prefs.edit().putInt("port", newPort).commit();
+                port = newPort;
+                running = true;
+                startServer();
+                Log.i(TAG, "Port changed to " + port);
+            }
+        }
         return START_STICKY;
     }
 
@@ -55,7 +75,16 @@ public class NotifyRelayService extends Service {
         super.onDestroy();
     }
 
-    private void createNotificationChannel() {
+    private Notification createFgNotification() {
+        return new Notification.Builder(this, FG_CHANNEL_ID)
+            .setContentTitle("通知中转服务运行中")
+            .setContentText("监听端口 " + port)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setOngoing(true)
+            .build();
+    }
+
+    private void createNotificationChannels() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm == null) return;
         NotificationChannel chan = new NotificationChannel(CHANNEL_ID, "面板通知", NotificationManager.IMPORTANCE_HIGH);
@@ -64,13 +93,15 @@ public class NotifyRelayService extends Service {
         chan.setShowBadge(true);
         chan.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         nm.createNotificationChannel(chan);
+        NotificationChannel fg = new NotificationChannel(FG_CHANNEL_ID, "服务状态", NotificationManager.IMPORTANCE_LOW);
+        nm.createNotificationChannel(fg);
     }
 
     private void startServer() {
         serverThread = new Thread(() -> {
             try {
-                serverSocket = new ServerSocket(PORT, 50, InetAddress.getByName("0.0.0.0"));
-                Log.i(TAG, "HTTP server on 0.0.0.0:" + PORT);
+                serverSocket = new ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"));
+                Log.i(TAG, "HTTP server on 0.0.0.0:" + port);
                 while (running) {
                     try {
                         Socket client = serverSocket.accept();
@@ -107,7 +138,25 @@ public class NotifyRelayService extends Service {
             String body = new String(bodyChars);
             String response;
             String contentType = "application/json";
-            if ("POST".equals(method)) {
+
+            // POST /port 改端口
+            if ("POST".equals(method) && path.equals("/port")) {
+                String newPortStr = getJson(body, "port");
+                if (newPortStr != null) {
+                    int newPort = Integer.parseInt(newPortStr);
+                    SharedPreferences prefs = getSharedPreferences("notify_relay", MODE_PRIVATE);
+                    prefs.edit().putInt("port", newPort).commit();
+                    response = "{\"ok\":true,\"old_port\":" + port + ",\"new_port\":" + newPort + "}";
+                    // 重启server
+                    running = false;
+                    if (serverSocket != null) try { serverSocket.close(); } catch (IOException e) {}
+                    port = newPort;
+                    running = true;
+                    startServer();
+                } else {
+                    response = "{\"ok\":false,\"error\":\"no port field\"}";
+                }
+            } else if ("POST".equals(method)) {
                 String title = getJson(body, "title");
                 if (title == null) title = getJson(body, "name");
                 if (title == null) title = "通知";
@@ -125,7 +174,7 @@ public class NotifyRelayService extends Service {
             } else if ("GET".equals(method)) {
                 if (path.equals("/health")) {
                     long uptime = (System.currentTimeMillis() - startTime) / 1000;
-                    response = "{\"status\":\"ok\",\"service\":\"notify-relay\",\"port\":" + PORT + ",\"recent_count\":" + recent.size() + ",\"uptime\":" + uptime + "}";
+                    response = "{\"status\":\"ok\",\"service\":\"notify-relay\",\"port\":" + port + ",\"recent_count\":" + recent.size() + ",\"uptime\":" + uptime + "}";
                 } else if (path.equals("/recent")) {
                     StringBuilder sb = new StringBuilder("{\"count\":").append(recent.size()).append(",\"notifications\":[");
                     for (int i = 0; i < recent.size(); i++) {
@@ -210,22 +259,27 @@ public class NotifyRelayService extends Service {
         + ".stat{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}"
         + ".si{background:#0f172a;padding:8px;border-radius:8px}"
         + ".sl{font-size:11px;color:#64748b}.sv{font-size:16px;font-weight:bold}"
-        + ".btn{background:#3b82f6;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer}"
+        + ".btn{background:#3b82f6;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;margin:4px 0}"
         + "input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:8px;border-radius:8px;width:100%;margin:4px 0}"
         + ".ni{background:#0f172a;padding:8px;border-radius:8px;margin-bottom:4px;border-left:3px solid #22c55e;font-size:12px}"
         + "</style></head><body>"
         + "<div class=card><h1>📡 通知中转</h1>"
-        + "<div class=stat><div class=si><div class=sl>端口</div><div class=sv>9530</div></div>"
+        + "<div class=stat><div class=si><div class=sl>端口</div><div class=sv id=port>9531</div></div>"
         + "<div class=si><div class=sl>通知数</div><div class=sv id=total>-</div></div></div></div>"
+        + "<div class=card><h1>⚙️ 修改端口</h1>"
+        + "<input id=newport type=number value=9531 placeholder=端口号>"
+        + "<button class=btn onclick=chport()>修改端口</button>"
+        + "<div id=portresult style=margin-top:8px;font-size:13px></div></div>"
         + "<div class=card><h1>✉️ 测试</h1>"
         + "<input id=t value=测试><input id=b value=内容>"
         + "<button class=btn onclick=t()>发送</button>"
         + "<div id=r style=margin-top:8px;font-size:13px></div></div>"
         + "<div class=card><h1>📋 最近</h1><div id=list></div></div>"
         + "<script>"
-        + "async function l(){try{const r=await fetch('/health');const d=await r.json();document.getElementById('total').textContent=d.recent_count;}catch(e){}}"
+        + "async function l(){try{const r=await fetch('/health');const d=await r.json();document.getElementById('total').textContent=d.recent_count;document.getElementById('port').textContent=d.port;}catch(e){}}"
         + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();document.getElementById('list').innerHTML=d.notifications.slice(0,20).map(n=>'<div class=ni>'+n+'</div>').join('');}catch(e){}}"
         + "async function t(){const t=document.getElementById('t').value;const b=document.getElementById('b').value;document.getElementById('r').textContent='发送中...';try{const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})});const d=await r.json();document.getElementById('r').innerHTML=d.ok?'<span style=color:#22c55e>✅已发送</span>':'<span style=color:#ef4444>❌失败</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
+        + "async function chport(){const p=document.getElementById('newport').value;document.getElementById('portresult').textContent='修改中...';try{const r=await fetch('/port',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({port:parseInt(p)})});const d=await r.json();if(d.ok){document.getElementById('portresult').innerHTML='<span style=color:#22c55e>✅端口已改为'+d.new_port+' 请刷新</span>';setTimeout(()=>location.reload(),2000);}else{document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+(d.error||'失败')+'</span>';}}catch(e){document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "l();lr();setInterval(()=>{l();lr();},5000);"
         + "</script></body></html>";
 }
