@@ -17,11 +17,7 @@ public class MainActivity extends Activity {
         Log.i(TAG, "MainActivity onCreate");
         
         Intent serviceIntent = new Intent(this, NotifyRelayService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent);
-        } else {
-            startService(serviceIntent);
-        }
+        startService(serviceIntent);
         Log.i(TAG, "Service started");
         
         try { Thread.sleep(1500); } catch (InterruptedException e) {}
