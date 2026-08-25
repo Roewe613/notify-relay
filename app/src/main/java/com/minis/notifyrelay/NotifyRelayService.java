@@ -235,7 +235,15 @@ public class NotifyRelayService extends Service {
         if (idx < 0) return null;
         idx++;
         while (idx < json.length() && json.charAt(idx) == ' ') idx++;
-        if (idx >= json.length() || json.charAt(idx) != '"') return null;
+        if (idx >= json.length()) return null;
+        // 数字值
+        if (json.charAt(idx) != '"') {
+            StringBuilder sb = new StringBuilder();
+            while (idx < json.length() && (Character.isDigit(json.charAt(idx)) || json.charAt(idx) == '-')) {
+                sb.append(json.charAt(idx)); idx++;
+            }
+            return sb.length() > 0 ? sb.toString() : null;
+        }
         idx++;
         StringBuilder sb = new StringBuilder();
         while (idx < json.length() && json.charAt(idx) != '"') {
