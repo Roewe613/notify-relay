@@ -11,7 +11,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.*;
+import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.text.SimpleDateFormat;
@@ -20,7 +22,9 @@ import java.util.*;
 public class NotifyServer {
     private static final String TAG = "NotifyRelay";
     private static final String CHANNEL_ID = "panel_notify";
+    private static final String GROUP_KEY = "notify_relay_group";
     private static final int NOTIF_ID_BASE = 9000;
+    private static final int SUMMARY_ID = 8999;
     private int notifIdCounter = 0;
 
     private final Context context;
@@ -36,6 +40,7 @@ public class NotifyServer {
         SharedPreferences prefs = ctx.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
         port = prefs.getInt("port", 9531);
         ensureChannel();
+        loadRecent(prefs);
     }
 
     public int getPort() { return port; }
@@ -53,24 +58,66 @@ public class NotifyServer {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private void loadRecent(SharedPreferences prefs) {
+        try {
+            Set<String> saved = prefs.getStringSet("recent_logs", null);
+            if (saved != null) {
+                List<String> list = new ArrayList<>(saved);
+                Collections.sort(list, Collections.reverseOrder());
+                recent.addAll(list);
+                while (recent.size() > 50) recent.remove(recent.size() - 1);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "loadRecent: " + e.getMessage());
+        }
+    }
+
+    private void saveRecent() {
+        try {
+            SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
+            Set<String> set = new LinkedHashSet<>(recent);
+            prefs.edit().putStringSet("recent_logs", set).commit();
+        } catch (Exception e) {
+            Log.w(TAG, "saveRecent: " + e.getMessage());
+        }
+    }
+
+    private void addRecent(String entry) {
+        recent.add(0, entry);
+        while (recent.size() > 50) recent.remove(recent.size() - 1);
+        saveRecent();
+    }
+
     public synchronized void start() {
         if (running) return;
         running = true;
         startTime = System.currentTimeMillis();
         serverThread = new Thread(() -> {
-            try {
-                serverSocket = new ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"));
-                Log.i(TAG, "HTTP server on 0.0.0.0:" + port);
-                while (running) {
-                    try {
-                        Socket client = serverSocket.accept();
-                        new Thread(() -> handleClient(client)).start();
-                    } catch (IOException e) {
-                        if (running) Log.e(TAG, "Accept: " + e.getMessage());
-                    }
+            int tryPort = port;
+            for (int attempt = 0; attempt < 20; attempt++) {
+                try {
+                    serverSocket = new ServerSocket(tryPort, 50, InetAddress.getByName("0.0.0.0"));
+                    port = tryPort;
+                    Log.i(TAG, "HTTP server on 0.0.0.0:" + port);
+                    break;
+                } catch (IOException e) {
+                    Log.w(TAG, "Port " + tryPort + " in use, trying " + (tryPort + 1));
+                    tryPort++;
                 }
-            } catch (IOException e) {
-                Log.e(TAG, "Server: " + e.getMessage());
+            }
+            if (serverSocket == null) {
+                Log.e(TAG, "No available port!");
+                running = false;
+                return;
+            }
+            while (running) {
+                try {
+                    Socket client = serverSocket.accept();
+                    new Thread(() -> handleClient(client)).start();
+                } catch (IOException e) {
+                    if (running) Log.e(TAG, "Accept: " + e.getMessage());
+                }
             }
         });
         serverThread.start();
@@ -83,12 +130,20 @@ public class NotifyServer {
         }
     }
 
-    public synchronized void changePort(int newPort) {
+    public synchronized boolean changePort(int newPort) {
+        // 先测试新端口能不能用
+        try (ServerSocket test = new ServerSocket(newPort)) {
+            // 端口可用
+        } catch (IOException e) {
+            Log.e(TAG, "Port " + newPort + " not available: " + e.getMessage());
+            return false;
+        }
         stop();
         port = newPort;
         SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
         prefs.edit().putInt("port", newPort).commit();
         start();
+        return true;
     }
 
     private void handleClient(Socket client) {
@@ -113,13 +168,31 @@ public class NotifyServer {
             String response;
             String contentType = "application/json";
 
+            // CORS preflight
+            if ("OPTIONS".equals(method)) {
+                String header = "HTTP/1.1 204 No Content\r\n"
+                    + "Access-Control-Allow-Origin: *\r\n"
+                    + "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+                    + "Access-Control-Allow-Headers: Content-Type\r\n"
+                    + "Content-Length: 0\r\n\r\n";
+                OutputStream os = client.getOutputStream();
+                os.write(header.getBytes("UTF-8"));
+                os.flush();
+                client.close();
+                return;
+            }
+
             if ("POST".equals(method) && path.equals("/port")) {
                 try {
                     JSONObject json = new JSONObject(body);
                     int newPort = json.getInt("port");
                     int oldPort = port;
-                    changePort(newPort);
-                    response = "{\"ok\":true,\"old_port\":" + oldPort + ",\"new_port\":" + newPort + "}";
+                    boolean ok = changePort(newPort);
+                    if (ok) {
+                        response = "{\"ok\":true,\"old_port\":" + oldPort + ",\"new_port\":" + newPort + "}";
+                    } else {
+                        response = "{\"ok\":false,\"error\":\"port " + newPort + " not available\"}";
+                    }
                 } catch (Exception e) {
                     response = "{\"ok\":false,\"error\":\"no port field\"}";
                 }
@@ -137,7 +210,7 @@ public class NotifyServer {
                             boolean ok = sendNotification(t, c);
                             if (ok) sent++; else failed++;
                             String ts = new SimpleDateFormat("MM-dd HH:mm:ss").format(new Date());
-                            recent.add(0, ts + " | " + (ok ? "✅" : "❌") + " " + t + " | " + c);
+                            addRecent(ts + " | " + (ok ? "✅" : "❌") + " " + t + " | " + c);
                         }
                     } else {
                         String t = json.optString("title", json.optString("name", "通知"));
@@ -146,7 +219,7 @@ public class NotifyServer {
                         boolean ok = sendNotification(t, c);
                         if (ok) sent++; else failed++;
                         String ts = new SimpleDateFormat("MM-dd HH:mm:ss").format(new Date());
-                        recent.add(0, ts + " | " + (ok ? "✅" : "❌") + " " + t + " | " + c);
+                        addRecent(ts + " | " + (ok ? "✅" : "❌") + " " + t + " | " + c);
                     }
                 } catch (Exception e) {
                     String t = getJson(body, "title");
@@ -161,14 +234,13 @@ public class NotifyServer {
                     boolean ok = sendNotification(t, c);
                     if (ok) sent++; else failed++;
                     String ts = new SimpleDateFormat("MM-dd HH:mm:ss").format(new Date());
-                    recent.add(0, ts + " | " + (ok ? "✅" : "❌") + " " + t + " | " + c);
+                    addRecent(ts + " | " + (ok ? "✅" : "❌") + " " + t + " | " + c);
                 }
-                while (recent.size() > 50) recent.remove(recent.size() - 1);
                 response = "{\"ok\":" + (failed == 0) + ",\"sent\":" + sent + ",\"failed\":" + failed + "}";
             } else if ("GET".equals(method)) {
                 if (path.equals("/health")) {
                     long uptime = (System.currentTimeMillis() - startTime) / 1000;
-                    response = "{\"status\":\"ok\",\"service\":\"notify-relay\",\"port\":" + port + ",\"recent_count\":" + recent.size() + ",\"uptime\":" + uptime + "}";
+                    response = "{\"status\":\"ok\",\"service\":\"notify-relay\",\"port\":" + port + ",\"recent_count\":" + recent.size() + ",\"uptime\":" + uptime + ",\"lan_ip\":\"" + getLanIp() + "\"}";
                 } else if (path.equals("/recent")) {
                     StringBuilder sb = new StringBuilder("{\"count\":").append(recent.size()).append(",\"notifications\":[");
                     for (int i = 0; i < recent.size(); i++) {
@@ -187,7 +259,7 @@ public class NotifyServer {
                 response = "{\"error\":\"method not allowed\"}";
             }
             byte[] respBytes = response.getBytes("UTF-8");
-            String header = "HTTP/1.1 200 OK\r\nContent-Type: " + contentType + "\r\nContent-Length: " + respBytes.length + "\r\nConnection: close\r\n\r\n";
+            String header = "HTTP/1.1 200 OK\r\nContent-Type: " + contentType + "\r\nContent-Length: " + respBytes.length + "\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n";
             OutputStream os = client.getOutputStream();
             os.write(header.getBytes("UTF-8"));
             os.write(respBytes);
@@ -203,6 +275,7 @@ public class NotifyServer {
         try {
             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return false;
+            int id = NOTIF_ID_BASE + (notifIdCounter++ % 1000);
             Notification notif = new Notification.Builder(context, CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(content)
@@ -210,13 +283,40 @@ public class NotifyServer {
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setAutoCancel(true)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setGroup(GROUP_KEY)
                 .build();
-            nm.notify(NOTIF_ID_BASE + (notifIdCounter++ % 1000), notif);
+            nm.notify(id, notif);
+
+            // 发送分组摘要通知
+            Notification summary = new Notification.Builder(context, CHANNEL_ID)
+                .setContentTitle("面板通知")
+                .setContentText(recent.size() + " 条通知")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setStyle(new Notification.InboxStyle())
+                .setGroup(GROUP_KEY)
+                .setGroupSummary(true)
+                .setAutoCancel(false)
+                .build();
+            nm.notify(SUMMARY_ID, summary);
             return true;
         } catch (Exception e) {
             Log.e(TAG, "Notify: " + e.getMessage());
             return false;
         }
+    }
+
+    private String getLanIp() {
+        try {
+            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                if (ni.isLoopback() || !ni.isUp()) continue;
+                for (InetAddress addr : Collections.list(ni.getInetAddresses())) {
+                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
+                        return addr.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception e) {}
+        return "unknown";
     }
 
     private String getJson(String json, String field) {
@@ -259,14 +359,16 @@ public class NotifyServer {
         + "h1{font-size:18px;color:#38bdf8;margin-bottom:8px}"
         + ".stat{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}"
         + ".si{background:#0f172a;padding:8px;border-radius:8px}"
-        + ".sl{font-size:11px;color:#64748b}.sv{font-size:16px;font-weight:bold}"
+        + ".sl{font-size:11px;color:#64748b}.sv{font-size:14px;font-weight:bold;word-break:break-all}"
         + ".btn{background:#3b82f6;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;margin:4px 0}"
         + "input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:8px;border-radius:8px;width:100%;margin:4px 0}"
         + ".ni{background:#0f172a;padding:8px;border-radius:8px;margin-bottom:4px;border-left:3px solid #22c55e;font-size:12px}"
+        + ".ip{font-size:12px;color:#64748b;margin-top:8px;word-break:break-all}"
         + "</style></head><body>"
         + "<div class=card><h1>📡 通知中转</h1>"
         + "<div class=stat><div class=si><div class=sl>端口</div><div class=sv id=port>9531</div></div>"
-        + "<div class=si><div class=sl>通知数</div><div class=sv id=total>-</div></div></div></div>"
+        + "<div class=si><div class=sl>通知数</div><div class=sv id=total>-</div></div></div>"
+        + "<div class=ip id=ipbox>局域网: 加载中...</div></div>"
         + "<div class=card><h1>⚙️ 修改端口</h1>"
         + "<input id=newport type=number value=9531 placeholder=端口号>"
         + "<button class=btn onclick=chport()>修改端口</button>"
@@ -278,7 +380,7 @@ public class NotifyServer {
         + "<div id=r style=margin-top:8px;font-size:13px></div></div>"
         + "<div class=card><h1>📋 最近</h1><div id=list></div></div>"
         + "<script>"
-        + "async function l(){try{const r=await fetch('/health');const d=await r.json();document.getElementById('total').textContent=d.recent_count;document.getElementById('port').textContent=d.port;}catch(e){}}"
+        + "async function l(){try{const r=await fetch('/health');const d=await r.json();document.getElementById('total').textContent=d.recent_count;document.getElementById('port').textContent=d.port;document.getElementById('ipbox').textContent='局域网地址: http://'+d.lan_ip+':'+d.port+'/';}catch(e){}}"
         + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();document.getElementById('list').innerHTML=d.notifications.slice(0,20).map(n=>'<div class=ni>'+n+'</div>').join('');}catch(e){}}"
         + "async function sendOne(){const t=document.getElementById('t').value;const b=document.getElementById('b').value;document.getElementById('r').textContent='发送中...';try{const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})});const d=await r.json();document.getElementById('r').innerHTML=d.ok?'<span style=color:#22c55e>✅已发送</span>':'<span style=color:#ef4444>❌失败</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "async function tbatch(){document.getElementById('r').textContent='批量发送中...';try{const arr=[{title:'批量1',body:'第一条通知'},{title:'批量2',body:'第二条通知'},{title:'批量3',body:'第三条通知'}];const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notifications:arr})});const d=await r.json();document.getElementById('r').innerHTML='<span style=color:#22c55e>✅发送'+d.sent+'条 失败'+d.failed+'条</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
