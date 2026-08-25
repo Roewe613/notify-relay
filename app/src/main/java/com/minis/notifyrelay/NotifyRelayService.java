@@ -11,6 +11,9 @@ import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -142,9 +145,9 @@ public class NotifyRelayService extends Service {
 
             // POST /port 改端口
             if ("POST".equals(method) && path.equals("/port")) {
-                String newPortStr = getJson(body, "port");
-                if (newPortStr != null) {
-                    int newPort = Integer.parseInt(newPortStr);
+                try {
+                    JSONObject json = new JSONObject(body);
+                    int newPort = json.getInt("port");
                     SharedPreferences prefs = getSharedPreferences("notify_relay", MODE_PRIVATE);
                     prefs.edit().putInt("port", newPort).commit();
                     response = "{\"ok\":true,\"old_port\":" + port + ",\"new_port\":" + newPort + "}";
@@ -154,24 +157,53 @@ public class NotifyRelayService extends Service {
                     port = newPort;
                     running = true;
                     startServer();
-                } else {
+                } catch (Exception e) {
                     response = "{\"ok\":false,\"error\":\"no port field\"}";
                 }
             } else if ("POST".equals(method)) {
-                String title = getJson(body, "title");
-                if (title == null) title = getJson(body, "name");
-                if (title == null) title = "通知";
-                String content = getJson(body, "body");
-                if (content == null) content = getJson(body, "content");
-                if (content == null) content = getJson(body, "text");
-                if (content == null) content = getJson(body, "message");
-                if (content == null) content = "通知";
-                if (content.length() > 200) content = content.substring(0, 200);
-                boolean ok = sendNotification(title, content);
-                String ts = new SimpleDateFormat("MM-dd HH:mm:ss").format(new Date());
-                recent.add(0, ts + " | " + (ok ? "✅" : "❌") + " " + title + " | " + content);
-                if (recent.size() > 50) recent.remove(recent.size() - 1);
-                response = "{\"ok\":" + ok + "}";
+                // 支持批量: {"notifications":[{"title":"t1","body":"b1"},{"title":"t2","body":"b2"}]}
+                int sent = 0, failed = 0;
+                try {
+                    JSONObject json = new JSONObject(body);
+                    if (json.has("notifications")) {
+                        JSONArray arr = json.getJSONArray("notifications");
+                        for (int i = 0; i < arr.length(); i++) {
+                            JSONObject item = arr.getJSONObject(i);
+                            String t = item.optString("title", item.optString("name", "通知"));
+                            String c = item.optString("body", item.optString("content", item.optString("text", item.optString("message", "通知"))));
+                            if (c.length() > 200) c = c.substring(0, 200);
+                            boolean ok = sendNotification(t, c);
+                            if (ok) sent++; else failed++;
+                            String ts = new SimpleDateFormat("MM-dd HH:mm:ss").format(new Date());
+                            recent.add(0, ts + " | " + (ok ? "✅" : "❌") + " " + t + " | " + c);
+                        }
+                    } else {
+                        String t = json.optString("title", json.optString("name", "通知"));
+                        String c = json.optString("body", json.optString("content", json.optString("text", json.optString("message", "通知"))));
+                        if (c.length() > 200) c = c.substring(0, 200);
+                        boolean ok = sendNotification(t, c);
+                        if (ok) sent++; else failed++;
+                        String ts = new SimpleDateFormat("MM-dd HH:mm:ss").format(new Date());
+                        recent.add(0, ts + " | " + (ok ? "✅" : "❌") + " " + t + " | " + c);
+                    }
+                } catch (Exception e) {
+                    // JSON解析失败, 回退到getJson
+                    String t = getJson(body, "title");
+                    if (t == null) t = getJson(body, "name");
+                    if (t == null) t = "通知";
+                    String c = getJson(body, "body");
+                    if (c == null) c = getJson(body, "content");
+                    if (c == null) c = getJson(body, "text");
+                    if (c == null) c = getJson(body, "message");
+                    if (c == null) c = "通知";
+                    if (c.length() > 200) c = c.substring(0, 200);
+                    boolean ok = sendNotification(t, c);
+                    if (ok) sent++; else failed++;
+                    String ts = new SimpleDateFormat("MM-dd HH:mm:ss").format(new Date());
+                    recent.add(0, ts + " | " + (ok ? "✅" : "❌") + " " + t + " | " + c);
+                }
+                while (recent.size() > 50) recent.remove(recent.size() - 1);
+                response = "{\"ok\":" + (failed == 0) + ",\"sent\":" + sent + ",\"failed\":" + failed + "}";
             } else if ("GET".equals(method)) {
                 if (path.equals("/health")) {
                     long uptime = (System.currentTimeMillis() - startTime) / 1000;
@@ -282,12 +314,14 @@ public class NotifyRelayService extends Service {
         + "<div class=card><h1>✉️ 测试</h1>"
         + "<input id=t value=测试><input id=b value=内容>"
         + "<button class=btn onclick=t()>发送</button>"
+        + "<button class=btn onclick=tbatch()>批量测试3条</button>"
         + "<div id=r style=margin-top:8px;font-size:13px></div></div>"
         + "<div class=card><h1>📋 最近</h1><div id=list></div></div>"
         + "<script>"
         + "async function l(){try{const r=await fetch('/health');const d=await r.json();document.getElementById('total').textContent=d.recent_count;document.getElementById('port').textContent=d.port;}catch(e){}}"
         + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();document.getElementById('list').innerHTML=d.notifications.slice(0,20).map(n=>'<div class=ni>'+n+'</div>').join('');}catch(e){}}"
         + "async function t(){const t=document.getElementById('t').value;const b=document.getElementById('b').value;document.getElementById('r').textContent='发送中...';try{const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})});const d=await r.json();document.getElementById('r').innerHTML=d.ok?'<span style=color:#22c55e>✅已发送</span>':'<span style=color:#ef4444>❌失败</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
+        + "async function tbatch(){document.getElementById('r').textContent='批量发送中...';try{const arr=[{title:'批量1',body:'第一条通知'},{title:'批量2',body:'第二条通知'},{title:'批量3',body:'第三条通知'}];const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notifications:arr})});const d=await r.json();document.getElementById('r').innerHTML='<span style=color:#22c55e>✅发送'+d.sent+'条 失败'+d.failed+'条</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "async function chport(){const p=document.getElementById('newport').value;document.getElementById('portresult').textContent='修改中...';try{const r=await fetch('/port',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({port:parseInt(p)})});const d=await r.json();if(d.ok){document.getElementById('portresult').innerHTML='<span style=color:#22c55e>✅端口已改为'+d.new_port+' 请刷新</span>';setTimeout(()=>location.reload(),2000);}else{document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+(d.error||'失败')+'</span>';}}catch(e){document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "l();lr();setInterval(()=>{l();lr();},5000);"
         + "</script></body></html>";
