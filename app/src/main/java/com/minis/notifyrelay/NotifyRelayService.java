@@ -43,7 +43,8 @@ public class NotifyRelayService extends Service {
         SharedPreferences prefs = getSharedPreferences("notify_relay", MODE_PRIVATE);
         port = prefs.getInt("port", 9531);
         createNotificationChannels();
-        startForeground(FG_NOTIF_ID, createFgNotification());
+        // 不用前台服务, ColorOS 15/Android 15会闪退
+        // startForeground(FG_NOTIF_ID, createFgNotification());
         running = true;
         startServer();
         Log.i(TAG, "Service started on port " + port);
