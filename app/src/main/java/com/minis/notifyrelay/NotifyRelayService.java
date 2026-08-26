@@ -15,9 +15,8 @@ public class NotifyRelayService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        server = new NotifyServer(this);
-        server.start();
-        Log.i(TAG, "Service started on port " + server.getPort());
+        server = NotifyServer.getShared(this);
+        Log.i(TAG, "Service sharing server on port " + server.getPort());
     }
 
     @Override

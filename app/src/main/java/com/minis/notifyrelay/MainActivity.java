@@ -23,10 +23,9 @@ public class MainActivity extends Activity {
         // 1. 请求通知权限 (Android 13+)
         requestNotificationPermission();
 
-        // 2. HTTP server 直接跑在 Activity 进程里
-        server = new NotifyServer(this);
-        server.start();
-        Log.i(TAG, "Server started on port " + server.getPort());
+        // 2. Activity 与后台Service共用同一台HTTP/LAN server
+        server = NotifyServer.getShared(this);
+        Log.i(TAG, "Server ready on port " + server.getPort());
 
         // 3. 也启动 Service 做后台保活
         try {

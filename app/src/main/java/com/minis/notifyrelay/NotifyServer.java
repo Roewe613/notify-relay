@@ -21,6 +21,16 @@ import java.util.*;
 
 public class NotifyServer {
     private static final String TAG = "NotifyRelay";
+    private static NotifyServer shared;
+
+    /** Activity 与 Service 共享同一台HTTP/LAN server，杜绝端口竞争。 */
+    public static synchronized NotifyServer getShared(Context ctx) {
+        if (shared == null) {
+            shared = new NotifyServer(ctx.getApplicationContext());
+            shared.start();
+        }
+        return shared;
+    }
     private static final String CHANNEL_ID = "panel_notify";
     private static final String GROUP_KEY = "notify_relay_group";
     private static final int NOTIF_ID_BASE = 9000;
@@ -34,6 +44,7 @@ public class NotifyServer {
     private final List<String> recent = Collections.synchronizedList(new ArrayList<>());
     private long startTime;
     private int port = 9531;
+    private LanPeerManager lan;
 
     public NotifyServer(Context ctx) {
         context = ctx;
@@ -99,6 +110,14 @@ public class NotifyServer {
                 try {
                     serverSocket = new ServerSocket(tryPort, 50, InetAddress.getByName("0.0.0.0"));
                     port = tryPort;
+                    SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
+                    String key = prefs.getString("lan_key", "");
+                    if (key.length() < 4) {
+                        key = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+                        prefs.edit().putString("lan_key", key).commit();
+                    }
+                    lan = new LanPeerManager(context, port, key);
+                    lan.start();
                     Log.i(TAG, "HTTP server on 0.0.0.0:" + port);
                     break;
                 } catch (IOException e) {
@@ -182,7 +201,30 @@ public class NotifyServer {
                 return;
             }
 
-            if ("POST".equals(method) && path.equals("/port")) {
+            if ("GET".equals(method) && path.equals("/peers")) {
+                response = "{\"ok\":true,\"peers\":" + (lan == null ? "[]" : lan.peersJson()) + "}";
+            } else if ("POST".equals(method) && path.equals("/lan/key")) {
+                try {
+                    JSONObject json = new JSONObject(body);
+                    String key = json.optString("key", "").trim();
+                    if (key.length() < 4) response = "{\"ok\":false,\"error\":\"key too short\"}";
+                    else {
+                        context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE).edit().putString("lan_key", key).commit();
+                        if (lan != null) lan.setGroupKey(key);
+                        response = "{\"ok\":true}";
+                    }
+                } catch (Exception e) { response = "{\"ok\":false,\"error\":\"invalid key\"}"; }
+            } else if ("POST".equals(method) && path.equals("/broadcast")) {
+                try {
+                    JSONObject json = new JSONObject(body);
+                    String title = json.optString("title", "通知");
+                    String content = json.optString("body", json.optString("content", "通知"));
+                    String key = json.optString("relay_key", "");
+                    String localKey = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE).getString("lan_key", "minis-local");
+                    if (!localKey.equals(key)) response = "{\"ok\":false,\"error\":\"pair key required\"}";
+                    else response = "{\"ok\":true,\"sent\":" + (lan == null ? 0 : lan.broadcast(title, content)) + "}";
+                } catch (Exception e) { response = "{\"ok\":false,\"error\":\"invalid request\"}"; }
+            } else if ("POST".equals(method) && path.equals("/port")) {
                 try {
                     JSONObject json = new JSONObject(body);
                     int newPort = json.getInt("port");
@@ -200,6 +242,16 @@ public class NotifyServer {
                 int sent = 0, failed = 0;
                 try {
                     JSONObject json = new JSONObject(body);
+                    // 非本机请求必须携带局域网配对密钥；本机面板脚本无需改动。
+                    boolean local = client.getInetAddress().isLoopbackAddress();
+                    String localKey = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE).getString("lan_key", "minis-local");
+                    if (!local && !localKey.equals(json.optString("relay_key", ""))) {
+                        response = "{\"ok\":false,\"error\":\"pair key required\"}";
+                        byte[] denied = response.getBytes("UTF-8");
+                        OutputStream os = client.getOutputStream();
+                        String hdr = "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: " + denied.length + "\r\nConnection: close\r\n\r\n";
+                        os.write(hdr.getBytes("UTF-8")); os.write(denied); os.flush(); return;
+                    }
                     if (json.has("notifications")) {
                         JSONArray arr = json.getJSONArray("notifications");
                         for (int i = 0; i < arr.length(); i++) {
@@ -373,15 +425,23 @@ public class NotifyServer {
         + "<input id=newport type=number value=9531 placeholder=端口号>"
         + "<button class=btn onclick=chport()>修改端口</button>"
         + "<div id=portresult style=margin-top:8px;font-size:13px></div></div>"
-        + "<div class=card><h1>✉️ 测试</h1>"
+        + "<div class=card><h1>✉️ 本机通知</h1>"
         + "<input id=t value=测试><input id=b value=内容>"
         + "<button class=btn onclick=sendOne()>发送</button>"
         + "<button class=btn onclick=tbatch()>批量测试3条</button>"
         + "<div id=r style=margin-top:8px;font-size:13px></div></div>"
-        + "<div class=card><h1>📋 最近</h1><div id=list></div></div>"
+        + "<div class=card><h1>📱 局域网手机</h1>"
+        + "<input id=lanKey placeholder=配对密钥（所有手机填相同内容）>"
+        + "<button class=btn onclick=saveKey()>保存并发现</button><button class=btn onclick=sendPeers()>发给全部在线手机</button>"
+        + "<div id=peers style=margin-top:8px;font-size:13px></div></div>"
+        + "<div class=card><h1>📋 最近（点击复制）</h1><div id=list></div></div>"
         + "<script>"
         + "async function l(){try{const r=await fetch('/health');const d=await r.json();document.getElementById('total').textContent=d.recent_count;document.getElementById('port').textContent=d.port;document.getElementById('ipbox').textContent='局域网地址: http://'+d.lan_ip+':'+d.port+'/';}catch(e){}}"
-        + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();document.getElementById('list').innerHTML=d.notifications.slice(0,20).map(n=>'<div class=ni>'+n+'</div>').join('');}catch(e){}}"
+        + "async function cp(x){try{await navigator.clipboard.writeText(x);document.getElementById('r').textContent='✅已复制';}catch(e){const a=document.createElement('textarea');a.value=x;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();document.getElementById('r').textContent='✅已复制';}}"
+        + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();document.getElementById('list').innerHTML=d.notifications.slice(0,20).map(n=>'<div class=ni onclick=cp(this.dataset.x) data-x='+JSON.stringify(n)+'>'+n+'</div>').join('');}catch(e){}}"
+        + "async function peers(){try{const r=await fetch('/peers');const d=await r.json();document.getElementById('peers').textContent=d.peers.length?'在线 '+d.peers.length+' 台：'+d.peers.map(x=>x.name+' ('+x.ip+':'+x.port+')').join('、'):'暂未发现配对手机';}catch(e){}}"
+        + "async function saveKey(){const k=document.getElementById('lanKey').value.trim();if(k.length<4){document.getElementById('peers').textContent='密钥至少4位';return}await fetch('/lan/key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:k})});document.getElementById('peers').textContent='✅已保存，等待发现其他手机';}"
+        + "async function sendPeers(){const k=document.getElementById('lanKey').value.trim();const t=document.getElementById('t').value,b=document.getElementById('b').value;if(!k){document.getElementById('peers').textContent='请先填配对密钥';return}const r=await fetch('/broadcast',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b,relay_key:k})});const d=await r.json();document.getElementById('peers').textContent=d.ok?'✅已发送给 '+d.sent+' 台手机':'❌'+d.error;}
         + "async function sendOne(){const t=document.getElementById('t').value;const b=document.getElementById('b').value;document.getElementById('r').textContent='发送中...';try{const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})});const d=await r.json();document.getElementById('r').innerHTML=d.ok?'<span style=color:#22c55e>✅已发送</span>':'<span style=color:#ef4444>❌失败</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "async function tbatch(){document.getElementById('r').textContent='批量发送中...';try{const arr=[{title:'批量1',body:'第一条通知'},{title:'批量2',body:'第二条通知'},{title:'批量3',body:'第三条通知'}];const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notifications:arr})});const d=await r.json();document.getElementById('r').innerHTML='<span style=color:#22c55e>✅发送'+d.sent+'条 失败'+d.failed+'条</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "async function chport(){const p=document.getElementById('newport').value;document.getElementById('portresult').textContent='修改中...';try{const r=await fetch('/port',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({port:parseInt(p)})});const d=await r.json();if(d.ok){document.getElementById('portresult').innerHTML='<span style=color:#22c55e>✅端口已改为'+d.new_port+' 请刷新</span>';setTimeout(()=>location.reload(),2000);}else{document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+(d.error||'失败')+'</span>';}}catch(e){document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
