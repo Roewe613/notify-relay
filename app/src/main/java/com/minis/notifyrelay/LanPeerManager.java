@@ -60,6 +60,15 @@ public class LanPeerManager {
         return s.append(']').toString();
     }
     public int broadcast(String title,String body) { int ok=0; for(Peer p:peers.values()) if(send(p.ip,p.port,title,body))ok++; return ok; }
+    public int broadcastFile(String name, String mime, String base64) { int ok=0; for(Peer p:peers.values()) if(sendFile(p.ip,p.port,name,mime,base64))ok++; return ok; }
+    public boolean sendFile(String ip,int port,String name,String mime,String base64) {
+        try {
+            URL u=new URL("http://"+ip+":"+port+"/file"); HttpURLConnection c=(HttpURLConnection)u.openConnection(); c.setConnectTimeout(5000);c.setReadTimeout(30000);c.setRequestMethod("POST");c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");
+            JSONObject j=new JSONObject();j.put("name",name);j.put("mime",mime);j.put("data",base64);j.put("relay_key",groupKey);
+            try(OutputStream o=c.getOutputStream()){o.write(j.toString().getBytes("UTF-8"));}
+            return c.getResponseCode()==200;
+        } catch(Exception e) { Log.w(TAG,"file "+e.getMessage()); return false; }
+    }
     public boolean send(String ip,int port,String title,String body) {
         try {
             URL u=new URL("http://"+ip+":"+port+"/"); HttpURLConnection c=(HttpURLConnection)u.openConnection(); c.setConnectTimeout(3000);c.setReadTimeout(5000);c.setRequestMethod("POST");c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");

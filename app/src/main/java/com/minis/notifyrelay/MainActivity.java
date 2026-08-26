@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.util.Log;
+import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -21,6 +22,7 @@ public class MainActivity extends Activity {
     private static final String TAG = "NotifyRelay";
     private static final int REQ_NOTIF = 1001;
     private static final int REQ_BG = 1002;
+    private static final int REQ_FILE = 1003;
     private NotifyServer server;
     private WebView webView;
 
@@ -56,6 +58,13 @@ public class MainActivity extends Activity {
                 startActivityForResult(i, REQ_BG);
             });
         }
+        @JavascriptInterface public void pickFile() {
+            runOnUiThread(() -> {
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("*/*");
+                startActivityForResult(i, REQ_FILE);
+            });
+        }
         @JavascriptInterface public void clearLocalBackground() {
             getSharedPreferences("notify_relay", MODE_PRIVATE).edit().remove("local_bg").apply();
             runOnUiThread(() -> webView.evaluateJavascript("setLocalBg('')", null));
@@ -64,7 +73,22 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQ_BG || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if (requestCode == REQ_FILE) {
+            try {
+                Uri uri = data.getData(); String name = "file";
+                android.database.Cursor c = getContentResolver().query(uri, null, null, null, null);
+                if (c != null) { int i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if (c.moveToFirst() && i >= 0) name = c.getString(i); c.close(); }
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                try (InputStream in = getContentResolver().openInputStream(uri)) { byte[] b = new byte[8192]; int n; while ((n=in.read(b))>0) { if (out.size()+n > 20*1024*1024) throw new IOException("文件超过20MB"); out.write(b,0,n); } }
+                String encoded = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+                int sent = server.broadcastFile(name, getContentResolver().getType(uri), encoded);
+                final String msg = "文件 " + name + " 已发送给 " + sent + " 台在线手机";
+                webView.evaluateJavascript("fileResult(" + JSONObject.quote(msg) + ")", null);
+            } catch (Exception e) { webView.evaluateJavascript("fileResult(" + JSONObject.quote("发送失败：" + e.getMessage()) + ")", null); }
+            return;
+        }
+        if (requestCode != REQ_BG) return;
         try {
             Uri uri = data.getData();
             File dst = new File(getFilesDir(), "hub_background.jpg");

@@ -55,6 +55,7 @@ public class NotifyServer {
     }
 
     public int getPort() { return port; }
+    public int broadcastFile(String name, String mime, String base64) { return lan == null ? 0 : lan.broadcastFile(name, mime, base64); }
 
     private void ensureChannel() {
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -201,7 +202,26 @@ public class NotifyServer {
                 return;
             }
 
-            if ("GET".equals(method) && path.equals("/peers")) {
+            if ("POST".equals(method) && path.equals("/file")) {
+                try {
+                    JSONObject json = new JSONObject(body);
+                    String key = json.optString("relay_key", "");
+                    String localKey = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE).getString("lan_key", "");
+                    String name = json.optString("name", "received_file").replaceAll("[^a-zA-Z0-9._-]", "_");
+                    String data64 = json.optString("data", "");
+                    if (!localKey.equals(key)) response = "{\"ok\":false,\"error\":\"pair key required\"}";
+                    else if (data64.length() > 28 * 1024 * 1024) response = "{\"ok\":false,\"error\":\"file too large (max 20MB)\"}";
+                    else {
+                        byte[] bytes = Base64.getDecoder().decode(data64);
+                        File dir = new File(context.getFilesDir(), "received"); dir.mkdirs();
+                        File file = new File(dir, System.currentTimeMillis() + "_" + name);
+                        try (FileOutputStream out = new FileOutputStream(file)) { out.write(bytes); }
+                        sendNotification("📥 收到局域网文件", name + " (" + bytes.length / 1024 + " KB)");
+                        addRecent(new SimpleDateFormat("MM-dd HH:mm:ss").format(new Date()) + " | 📥 文件 | " + name);
+                        response = "{\"ok\":true,\"name\":\"" + esc(name) + "\"}";
+                    }
+                } catch (Exception e) { response = "{\"ok\":false,\"error\":\"file receive failed\"}"; }
+            } else if ("GET".equals(method) && path.equals("/peers")) {
                 response = "{\"ok\":true,\"peers\":" + (lan == null ? "[]" : lan.peersJson()) + "}";
             } else if ("GET".equals(method) && path.equals("/appearance")) {
                 SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
@@ -448,10 +468,12 @@ public class NotifyServer {
         + "<button class=btn onclick=sendOne()>发送</button>"
         + "<button class=btn onclick=tbatch()>批量测试3条</button>"
         + "<div id=r style=margin-top:8px;font-size:13px></div></div>"
-        + "<div class=card><h1>📱 局域网手机</h1>"
+        + "<div class=card><h1>📱 局域网设备</h1>"
         + "<input id=lanKey placeholder=配对密钥（所有手机填相同内容）>"
-        + "<button class=btn onclick=saveKey()>保存并发现</button><button class=btn onclick=sendPeers()>发给全部在线手机</button>"
-        + "<div id=peers style=margin-top:8px;font-size:13px></div></div>"
+        + "<button class=btn onclick=saveKey()>保存并发现</button><button class=btn onclick=sendPeers()>群发文字</button>"
+        + "<button class=btn onclick=NativeHub.pickFile()>选择图片/文件群发</button>"
+        + "<div class=ip>文件仅发送给已配对在线设备｜单文件最大 20MB｜接收端不会自动执行</div><div id=fileResult class=ip></div>"
+        + "<div id=peers style=margin-top:8px;font-size:13px></div></div>
         + "<div class=card><h1>📋 最近（点击复制）</h1><div id=list></div></div>"
         + "<script>"
         + "const themes={glass:'radial-gradient(circle at 8% 4%,#bceeff 0,transparent 30%),radial-gradient(circle at 93% 18%,#d5c4ff 0,transparent 31%),linear-gradient(145deg,#dff8ff,#c9d8f3 48%,#e7d8f5)',terminal:'linear-gradient(145deg,#06111d,#0b2540 55%,#06121d)',purple:'radial-gradient(circle at 15% 5%,#e9c8ff 0,transparent 30%),linear-gradient(145deg,#e9ddff,#b8b7e9)'};"
@@ -463,6 +485,7 @@ public class NotifyServer {
         + "async function cp(x){try{await navigator.clipboard.writeText(x);document.getElementById('r').textContent='✅已复制';}catch(e){const a=document.createElement('textarea');a.value=x;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();document.getElementById('r').textContent='✅已复制';}}"
         + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();document.getElementById('list').innerHTML=d.notifications.slice(0,20).map(n=>'<div class=ni onclick=cp(this.dataset.x) data-x='+JSON.stringify(n)+'>'+n+'</div>').join('');}catch(e){}}"
         + "async function peers(){try{const r=await fetch('/peers');const d=await r.json();document.getElementById('peers').textContent=d.peers.length?'在线 '+d.peers.length+' 台：'+d.peers.map(x=>x.name+' ('+x.ip+':'+x.port+')').join('、'):'暂未发现配对手机';}catch(e){}}"
+        + "function fileResult(x){document.getElementById('fileResult').textContent=x;}"
         + "async function saveKey(){const k=document.getElementById('lanKey').value.trim();if(k.length<4){document.getElementById('peers').textContent='密钥至少4位';return}await fetch('/lan/key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:k})});document.getElementById('peers').textContent='✅已保存，等待发现其他手机';}"
         + "async function sendPeers(){const k=document.getElementById('lanKey').value.trim();const t=document.getElementById('t').value,b=document.getElementById('b').value;if(!k){document.getElementById('peers').textContent='请先填配对密钥';return}const r=await fetch('/broadcast',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b,relay_key:k})});const d=await r.json();document.getElementById('peers').textContent=d.ok?'✅已发送给 '+d.sent+' 台手机':'❌'+d.error;}"
         + "async function sendOne(){const t=document.getElementById('t').value;const b=document.getElementById('b').value;document.getElementById('r').textContent='发送中...';try{const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})});const d=await r.json();document.getElementById('r').innerHTML=d.ok?'<span style=color:#22c55e>✅已发送</span>':'<span style=color:#ef4444>❌失败</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
