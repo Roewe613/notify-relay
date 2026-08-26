@@ -12,18 +12,19 @@ import java.util.concurrent.ConcurrentHashMap;
 /** 局域网设备发现与通知互发。只有相同 groupKey 的设备才会互相显示。 */
 public class LanPeerManager {
     private static final String TAG = "NotifyRelayLan";
+    private static final String MAGIC = "HUBFILE1";
     private static final int DISCOVERY_PORT = 9532;
     private final Context context;
-    private final int httpPort;
+    private final int httpPort, filePort;
     private final ConcurrentHashMap<String, Peer> peers = new ConcurrentHashMap<>();
     private volatile boolean running;
     private String groupKey;
 
     public static class Peer {
-        public String name, ip; public int port; public long seen;
-        Peer(String name, String ip, int port) { this.name=name; this.ip=ip; this.port=port; this.seen=System.currentTimeMillis(); }
+        public String name, ip; public int port, filePort; public long seen;
+        Peer(String name, String ip, int port, int filePort) { this.name=name; this.ip=ip; this.port=port; this.filePort=filePort; this.seen=System.currentTimeMillis(); }
     }
-    public LanPeerManager(Context c, int port, String key) { context=c; httpPort=port; groupKey=key; }
+    public LanPeerManager(Context c, int port, String key) { context=c; httpPort=port; filePort=port+2; groupKey=key; }
     public void setGroupKey(String k) { groupKey=k; }
     public String getGroupKey() { return groupKey; }
     public void start() {
@@ -39,16 +40,16 @@ public class LanPeerManager {
                 DatagramPacket p=new DatagramPacket(b,b.length); s.receive(p);
                 JSONObject j=new JSONObject(new String(p.getData(),0,p.getLength(),"UTF-8"));
                 if (!"minis-notify-v1".equals(j.optString("app")) || !groupKey.equals(j.optString("key"))) continue;
-                String ip=p.getAddress().getHostAddress(); int port=j.optInt("port",9531);
+                String ip=p.getAddress().getHostAddress(); int port=j.optInt("port",9531), fp=j.optInt("filePort",port+2);
                 if (ip.equals(getLanIp()) && port==httpPort) continue;
-                peers.put(ip+":"+port,new Peer(j.optString("name","Android"),ip,port));
+                peers.put(ip+":"+port,new Peer(j.optString("name","Android"),ip,port,fp));
             } catch(Exception e) { Log.w(TAG,"recv "+e.getMessage()); }
         } catch(Exception e) { Log.e(TAG,"listen "+e.getMessage()); }
     }
     private void announce() {
         try (DatagramSocket s=new DatagramSocket()) {
             s.setBroadcast(true);
-            JSONObject j=new JSONObject(); j.put("app","minis-notify-v1");j.put("key",groupKey);j.put("port",httpPort);j.put("name",Build.MODEL);
+            JSONObject j=new JSONObject(); j.put("app","minis-notify-v1");j.put("key",groupKey);j.put("port",httpPort);j.put("filePort",filePort);j.put("name",Build.MODEL);
             byte[] b=j.toString().getBytes("UTF-8");
             s.send(new DatagramPacket(b,b.length,InetAddress.getByName("255.255.255.255"),DISCOVERY_PORT));
         } catch(Exception e) { Log.w(TAG,"announce "+e.getMessage()); }
@@ -60,13 +61,13 @@ public class LanPeerManager {
         return s.append(']').toString();
     }
     public int broadcast(String title,String body) { int ok=0; for(Peer p:peers.values()) if(send(p.ip,p.port,title,body))ok++; return ok; }
-    public int broadcastFile(String name, String mime, String base64) { int ok=0; for(Peer p:peers.values()) if(sendFile(p.ip,p.port,name,mime,base64))ok++; return ok; }
-    public boolean sendFile(String ip,int port,String name,String mime,String base64) {
-        try {
-            URL u=new URL("http://"+ip+":"+port+"/file"); HttpURLConnection c=(HttpURLConnection)u.openConnection(); c.setConnectTimeout(5000);c.setReadTimeout(30000);c.setRequestMethod("POST");c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");
-            JSONObject j=new JSONObject();j.put("name",name);j.put("mime",mime);j.put("data",base64);j.put("relay_key",groupKey);
-            try(OutputStream o=c.getOutputStream()){o.write(j.toString().getBytes("UTF-8"));}
-            return c.getResponseCode()==200;
+    public int broadcastFile(File file, String mime) { int ok=0; for(Peer p:peers.values()) if(sendFile(p.ip,p.filePort,file,mime))ok++; return ok; }
+    public boolean sendFile(String ip,int port,File file,String mime) {
+        try(Socket s=new Socket()) {
+            s.connect(new InetSocketAddress(ip,port),5000); s.setSoTimeout(30000);
+            DataOutputStream out=new DataOutputStream(new BufferedOutputStream(s.getOutputStream()));
+            out.writeUTF(MAGIC);out.writeUTF(groupKey);out.writeUTF(file.getName());out.writeUTF(mime==null?"application/octet-stream":mime);out.writeLong(file.length());
+            try(InputStream in=new BufferedInputStream(new FileInputStream(file))){byte[] b=new byte[32768];int n;while((n=in.read(b))>0)out.write(b,0,n);}out.flush();return s.getInputStream().read()==1;
         } catch(Exception e) { Log.w(TAG,"file "+e.getMessage()); return false; }
     }
     public boolean send(String ip,int port,String title,String body) {

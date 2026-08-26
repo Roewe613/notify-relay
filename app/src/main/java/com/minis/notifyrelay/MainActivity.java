@@ -80,11 +80,13 @@ public class MainActivity extends Activity {
                 Uri uri = data.getData(); String name = "file";
                 android.database.Cursor c = getContentResolver().query(uri, null, null, null, null);
                 if (c != null) { int i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if (c.moveToFirst() && i >= 0) name = c.getString(i); c.close(); }
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                try (InputStream in = getContentResolver().openInputStream(uri)) { byte[] b = new byte[8192]; int n; while ((n=in.read(b))>0) { if (out.size()+n > 20*1024*1024) throw new IOException("文件超过20MB"); out.write(b,0,n); } }
-                String encoded = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
-                int sent = server.broadcastFile(name, getContentResolver().getType(uri), encoded);
-                final String msg = "文件 " + name + " 已发送给 " + sent + " 台在线手机";
+                File dir = new File(getCacheDir(), "outgoing"); dir.mkdirs();
+                File file = new File(dir, System.currentTimeMillis() + "_" + name.replaceAll("[^a-zA-Z0-9._-]", "_"));
+                try (InputStream in = getContentResolver().openInputStream(uri); OutputStream out = new FileOutputStream(file)) {
+                    byte[] b = new byte[32768]; int n; while ((n=in.read(b))>0) out.write(b,0,n);
+                }
+                int sent = server.broadcastFile(file, getContentResolver().getType(uri));
+                final String msg = "文件 " + name + " (" + (file.length()/1024/1024) + "MB) 已发送给 " + sent + " 台在线手机";
                 webView.evaluateJavascript("fileResult(" + JSONObject.quote(msg) + ")", null);
             } catch (Exception e) { webView.evaluateJavascript("fileResult(" + JSONObject.quote("发送失败：" + e.getMessage()) + ")", null); }
             return;

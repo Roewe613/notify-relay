@@ -55,7 +55,7 @@ public class NotifyServer {
     }
 
     public int getPort() { return port; }
-    public int broadcastFile(String name, String mime, String base64) { return lan == null ? 0 : lan.broadcastFile(name, mime, base64); }
+    public int broadcastFile(File file, String mime) { return lan == null ? 0 : lan.broadcastFile(file, mime); }
 
     private void ensureChannel() {
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -119,6 +119,7 @@ public class NotifyServer {
                     }
                     lan = new LanPeerManager(context, port, key);
                     lan.start();
+                    new FileTransferServer(context, port + 2, key).start();
                     Log.i(TAG, "HTTP server on 0.0.0.0:" + port);
                     break;
                 } catch (IOException e) {
