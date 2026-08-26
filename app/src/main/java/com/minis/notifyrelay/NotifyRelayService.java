@@ -26,7 +26,9 @@ public class NotifyRelayService extends Service {
 
     @Override
     public void onDestroy() {
-        if (server != null) server.stop();
+        // server 为 Activity/Service 共享实例；Service 被系统回收时不能关闭它。
+        // 否则前台界面还在，但 9531 会被错误关闭。
+        Log.i(TAG, "Service destroyed; shared server remains managed by app process");
         super.onDestroy();
     }
 }
