@@ -18,6 +18,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().setStatusBarColor(android.graphics.Color.rgb(8, 13, 24));
+        getWindow().setNavigationBarColor(android.graphics.Color.rgb(8, 13, 24));
         Log.i(TAG, "MainActivity onCreate");
 
         // 1. 请求通知权限 (Android 13+)
