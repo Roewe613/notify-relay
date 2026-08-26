@@ -438,7 +438,7 @@ public class NotifyServer {
         + "<button class=btn onclick=theme('glass')>玻璃蓝</button><button class=btn onclick=theme('terminal')>终端深色</button><button class=btn onclick=theme('purple')>紫霞</button>"
         + "<input id=bg placeholder=背景图片URL（留空使用主题背景）><button class=btn onclick=saveBg()>保存背景</button>"
         + "<div id=bgresult class=ip></div></div>"
-        + "<div class=card><h1>⚙️ 修改端口</h1>
+        + "<div class=card><h1>⚙️ 修改端口</h1>"
         + "<input id=newport type=number value=9531 placeholder=端口号>"
         + "<button class=btn onclick=chport()>修改端口</button>"
         + "<div id=portresult style=margin-top:8px;font-size:13px></div></div>"
@@ -458,7 +458,7 @@ public class NotifyServer {
         + "async function ap(){try{const r=await fetch('/appearance');const d=await r.json();document.getElementById('bg').value=d.background||'';paint(d.theme,d.background);}catch(e){}}"
         + "async function theme(t){await fetch('/appearance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:t,background:''})});paint(t,'');document.getElementById('bg').value='';}"
         + "async function saveBg(){const b=document.getElementById('bg').value.trim();const r=await fetch('/appearance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:'glass',background:b})});const d=await r.json();document.getElementById('bgresult').textContent=d.ok?'✅背景已保存':'❌'+d.error;if(d.ok)paint('glass',b);}"
-        + "async function l(){try{const r=await fetch('/health',{cache:'no-store'});const d=await r.json();document.getElementById('total').textContent=d.recent_count;document.getElementById('port').textContent=d.port;document.getElementById('ipbox').textContent='局域网地址: http://'+d.lan_ip+':'+d.port+'/';document.getElementById('status').className='ok';document.getElementById('status').textContent='● ONLINE';}catch(e){document.getElementById('status').className='wait';document.getElementById('status').textContent='● RETRYING';document.getElementById('ipbox').textContent='服务启动中，正在自动重试…';}}
+        + "async function l(){try{const r=await fetch('/health',{cache:'no-store'});const d=await r.json();document.getElementById('total').textContent=d.recent_count;document.getElementById('port').textContent=d.port;document.getElementById('ipbox').textContent='局域网地址: http://'+d.lan_ip+':'+d.port+'/';document.getElementById('status').className='ok';document.getElementById('status').textContent='● ONLINE';}catch(e){document.getElementById('status').className='wait';document.getElementById('status').textContent='● RETRYING';document.getElementById('ipbox').textContent='服务启动中，正在自动重试…';}}"
         + "async function cp(x){try{await navigator.clipboard.writeText(x);document.getElementById('r').textContent='✅已复制';}catch(e){const a=document.createElement('textarea');a.value=x;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();document.getElementById('r').textContent='✅已复制';}}"
         + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();document.getElementById('list').innerHTML=d.notifications.slice(0,20).map(n=>'<div class=ni onclick=cp(this.dataset.x) data-x='+JSON.stringify(n)+'>'+n+'</div>').join('');}catch(e){}}"
         + "async function peers(){try{const r=await fetch('/peers');const d=await r.json();document.getElementById('peers').textContent=d.peers.length?'在线 '+d.peers.length+' 台：'+d.peers.map(x=>x.name+' ('+x.ip+':'+x.port+')').join('、'):'暂未发现配对手机';}catch(e){}}"
