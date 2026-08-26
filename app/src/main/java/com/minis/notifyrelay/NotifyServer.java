@@ -223,6 +223,19 @@ public class NotifyServer {
                         response = "{\"ok\":true,\"name\":\"" + esc(name) + "\"}";
                     }
                 } catch (Exception e) { response = "{\"ok\":false,\"error\":\"file receive failed\"}"; }
+            } else if ("GET".equals(method) && path.startsWith("/background")) {
+                SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
+                String bgPath = prefs.getString("local_bg", "");
+                File bg = bgPath.isEmpty() ? null : new File(bgPath);
+                if (bg == null || !bg.exists()) {
+                    response = "";
+                    contentType = "text/plain";
+                } else {
+                    byte[] img = new byte[(int) bg.length()];
+                    try (InputStream in = new FileInputStream(bg)) { int off=0,n; while(off<img.length && (n=in.read(img,off,img.length-off))>0) off+=n; }
+                    String header = "HTTP/1.1 200 OK\r\nContent-Type: " + prefs.getString("local_bg_mime", "image/jpeg") + "\r\nContent-Length: " + img.length + "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
+                    OutputStream os = client.getOutputStream(); os.write(header.getBytes("UTF-8")); os.write(img); os.flush(); return;
+                }
             } else if ("GET".equals(method) && path.equals("/peers")) {
                 response = "{\"ok\":true,\"peers\":" + (lan == null ? "[]" : lan.peersJson()) + "}";
             } else if ("GET".equals(method) && path.equals("/appearance")) {
@@ -450,7 +463,7 @@ public class NotifyServer {
         + "<title>通知枢纽</title>"
         + "<style>*{box-sizing:border-box;margin:0;padding:0}"
         + "body{font-family:system-ui,sans-serif;color:#11213b;padding:16px;min-height:100vh;background:radial-gradient(circle at 8% 4%,#bceeff 0,transparent 30%),radial-gradient(circle at 93% 18%,#d5c4ff 0,transparent 31%),linear-gradient(145deg,#dff8ff,#c9d8f3 48%,#e7d8f5);background-attachment:fixed}"
-        + ".card,.terminal{background:#ffffff8c;border:1px solid #ffffffb8;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-radius:22px;padding:18px;margin-bottom:14px;box-shadow:0 10px 28px #57719632}"
+        + ".card,.terminal{background:#ffffff52;border:1px solid #ffffffa8;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:22px;padding:18px;margin-bottom:14px;box-shadow:0 10px 28px #57719632}"
         + ".terminal{background:linear-gradient(135deg,#ffffffa6,#e9f6ff86);border-color:#ffffffd0}.bar{display:flex;justify-content:space-between;align-items:center;color:#18385e;border-bottom:1px solid #6b98bb55;padding-bottom:12px;font-size:12px}.bar b{font-size:14px;letter-spacing:.5px}.prompt{color:#2575c8;padding:12px 0 5px;font-size:13px}.cursor{animation:blink 1s step-end infinite}@keyframes blink{50%{opacity:0}}"
         + "h1{font-size:21px;color:#18385e;margin-bottom:14px;font-weight:800}h1:before{content:''}"
         + ".stat{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}.si{background:#ffffff9c;border:1px solid #ffffffd9;padding:13px;border-radius:16px;box-shadow:inset 0 1px #fff}"

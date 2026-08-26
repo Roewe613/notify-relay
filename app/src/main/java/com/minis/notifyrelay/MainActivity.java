@@ -67,7 +67,7 @@ public class MainActivity extends Activity {
             });
         }
         @JavascriptInterface public void clearLocalBackground() {
-            getSharedPreferences("notify_relay", MODE_PRIVATE).edit().remove("local_bg").apply();
+            getSharedPreferences("notify_relay", MODE_PRIVATE).edit().remove("local_bg").remove("local_bg_mime").apply();
             runOnUiThread(() -> webView.evaluateJavascript("setLocalBg('')", null));
         }
     }
@@ -99,8 +99,9 @@ public class MainActivity extends Activity {
                 byte[] buf = new byte[8192]; int n; long total = 0;
                 while ((n = in.read(buf)) > 0) { total += n; if (total > 8 * 1024 * 1024) throw new IOException("图片超过8MB"); out.write(buf, 0, n); }
             }
-            getSharedPreferences("notify_relay", MODE_PRIVATE).edit().putString("local_bg", dst.getAbsolutePath()).apply();
-            // 复制完成后稍等WebView恢复，再注入本地 file:// 背景。
+            String mime = getContentResolver().getType(uri);
+            getSharedPreferences("notify_relay", MODE_PRIVATE).edit().putString("local_bg", dst.getAbsolutePath()).putString("local_bg_mime", mime == null ? "image/jpeg" : mime).apply();
+            // 通过本机 HTTP /background 提供图片，避免 WebView 拦截 file:// 跨来源背景。
             webView.postDelayed(() -> applySavedLocalBackground(), 150);
         } catch (Exception e) { Log.e(TAG, "background", e); }
     }
@@ -108,7 +109,7 @@ public class MainActivity extends Activity {
     private void applySavedLocalBackground() {
         String path = getSharedPreferences("notify_relay", MODE_PRIVATE).getString("local_bg", "");
         if (path.isEmpty() || !new File(path).exists()) return;
-        String js = "setLocalBg(" + JSONObject.quote("file://" + path) + ")";
+        String js = "setLocalBg(" + JSONObject.quote("/background?ts=" + System.currentTimeMillis()) + ")";
         webView.evaluateJavascript(js, null);
     }
 
