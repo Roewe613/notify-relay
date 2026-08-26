@@ -380,7 +380,18 @@ public class NotifyServer {
             int id = NOTIF_ID_BASE + (notifIdCounter++ % 1000);
             // 紫霞终端通知卡；BigTextStyle 保证不同 ColorOS 版本仍有完整正文兜底。
             RemoteViews compact = new RemoteViews(context.getPackageName(), R.layout.notification_hub);
-            compact.setTextViewText(R.id.hub_label, "通知枢纽 // LOCAL MESSAGE");
+            String label = "通知枢纽 // MESSAGE";
+            int bg = R.drawable.notification_hub_bg;
+            if (title.contains("💰") || title.contains("🎉") || title.contains("🔥") || title.contains("下注")) {
+                label = "通知枢纽 // SUCCESS"; bg = R.drawable.notification_hub_success;
+            } else if (title.contains("⚠") || title.contains("❌") || title.contains("异常") || title.contains("失败")) {
+                label = "通知枢纽 // ALERT"; bg = R.drawable.notification_hub_alert;
+            } else if (title.contains("🔮") || title.contains("新奥") || title.contains("预测") || title.contains("📥")) {
+                label = title.contains("📥") ? "通知枢纽 // FILE" : "通知枢纽 // FORECAST";
+                bg = R.drawable.notification_hub_forecast;
+            }
+            compact.setInt(R.id.hub_root, "setBackgroundResource", bg);
+            compact.setTextViewText(R.id.hub_label, label);
             compact.setTextViewText(R.id.hub_title, title);
             compact.setTextViewText(R.id.hub_body, content);
             Notification notif = new Notification.Builder(context, CHANNEL_ID)
