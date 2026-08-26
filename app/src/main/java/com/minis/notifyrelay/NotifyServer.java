@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
+import android.widget.RemoteViews;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -364,10 +365,16 @@ public class NotifyServer {
             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return false;
             int id = NOTIF_ID_BASE + (notifIdCounter++ % 1000);
+            // 紫霞终端通知卡；BigTextStyle 保证不同 ColorOS 版本仍有完整正文兜底。
+            RemoteViews compact = new RemoteViews(context.getPackageName(), R.layout.notification_hub);
+            compact.setTextViewText(R.id.hub_label, "通知枢纽 // LOCAL MESSAGE");
+            compact.setTextViewText(R.id.hub_title, title);
+            compact.setTextViewText(R.id.hub_body, content);
             Notification notif = new Notification.Builder(context, CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(content)
                 .setStyle(new Notification.BigTextStyle().bigText(content))
+                .setCustomContentView(compact)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setAutoCancel(true)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
