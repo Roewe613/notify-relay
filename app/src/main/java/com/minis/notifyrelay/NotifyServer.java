@@ -473,7 +473,7 @@ public class NotifyServer {
         + "<button class=btn onclick=saveKey()>保存并发现</button><button class=btn onclick=sendPeers()>群发文字</button>"
         + "<button class=btn onclick=NativeHub.pickFile()>选择图片/文件群发</button>"
         + "<div class=ip>文件仅发送给已配对在线设备｜单文件最大 20MB｜接收端不会自动执行</div><div id=fileResult class=ip></div>"
-        + "<div id=peers style=margin-top:8px;font-size:13px></div></div>
+        + "<div id=peers style=margin-top:8px;font-size:13px></div></div>"
         + "<div class=card><h1>📋 最近（点击复制）</h1><div id=list></div></div>"
         + "<script>"
         + "const themes={glass:'radial-gradient(circle at 8% 4%,#bceeff 0,transparent 30%),radial-gradient(circle at 93% 18%,#d5c4ff 0,transparent 31%),linear-gradient(145deg,#dff8ff,#c9d8f3 48%,#e7d8f5)',terminal:'linear-gradient(145deg,#06111d,#0b2540 55%,#06121d)',purple:'radial-gradient(circle at 15% 5%,#e9c8ff 0,transparent 30%),linear-gradient(145deg,#e9ddff,#b8b7e9)'};"
