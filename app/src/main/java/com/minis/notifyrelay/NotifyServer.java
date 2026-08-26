@@ -203,6 +203,21 @@ public class NotifyServer {
 
             if ("GET".equals(method) && path.equals("/peers")) {
                 response = "{\"ok\":true,\"peers\":" + (lan == null ? "[]" : lan.peersJson()) + "}";
+            } else if ("GET".equals(method) && path.equals("/appearance")) {
+                SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
+                response = "{\"theme\":\"" + esc(prefs.getString("ui_theme", "glass")) + "\",\"background\":\"" + esc(prefs.getString("ui_background", "")) + "\"}";
+            } else if ("POST".equals(method) && path.equals("/appearance")) {
+                try {
+                    JSONObject json = new JSONObject(body);
+                    String theme = json.optString("theme", "glass");
+                    String bg = json.optString("background", "").trim();
+                    if (bg.length() > 500 || !(bg.isEmpty() || bg.startsWith("https://") || bg.startsWith("http://"))) {
+                        response = "{\"ok\":false,\"error\":\"background requires http(s) URL\"}";
+                    } else {
+                        context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE).edit().putString("ui_theme", theme).putString("ui_background", bg).commit();
+                        response = "{\"ok\":true}";
+                    }
+                } catch (Exception e) { response = "{\"ok\":false,\"error\":\"invalid appearance\"}"; }
             } else if ("POST".equals(method) && path.equals("/lan/key")) {
                 try {
                     JSONObject json = new JSONObject(body);
@@ -406,24 +421,24 @@ public class NotifyServer {
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
         + "<title>通知枢纽</title>"
         + "<style>*{box-sizing:border-box;margin:0;padding:0}"
-        + "body{font-family:monospace;background:#080d18;background-image:linear-gradient(#14213755 1px,transparent 1px),linear-gradient(90deg,#14213755 1px,transparent 1px);background-size:24px 24px;color:#d9e7ff;padding:14px}"
-        + ".card,.terminal{background:#0b1220eF;border:1px solid #28415e;border-radius:8px;padding:14px;margin-bottom:12px;box-shadow:0 0 18px #0b7d9b20}"
-        + ".terminal{border-color:#257298;box-shadow:0 0 22px #00b7ff25}.bar{display:flex;justify-content:space-between;align-items:center;color:#47cbff;border-bottom:1px solid #29475f;padding-bottom:10px;font-size:12px}.bar b{letter-spacing:1px}.prompt{color:#3fe4a4;padding:10px 0 5px;font-size:13px}.cursor{animation:blink 1s step-end infinite}@keyframes blink{50%{opacity:0}}"
-        + "h1{font-size:17px;color:#41c7ff;margin-bottom:10px;letter-spacing:1px}h1:before{content:'$ ';color:#37e5a5}"
-        + ".stat{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}"
-        + ".si{background:#080f1d;border:1px solid #203553;padding:9px;border-radius:7px}"
-        + ".sl{font-size:11px;color:#7086a5}.sv{font-size:16px;font-weight:bold;color:#f0f7ff;word-break:break-all}"
-        + ".btn{background:#126c9e;color:#fff;border:1px solid #3bbbea;padding:9px 13px;border-radius:6px;cursor:pointer;margin:4px 0;font-weight:bold}"
-        + ".btn:active{background:#0d4668}input{background:#080f1d;border:1px solid #385273;color:#e2efff;padding:10px;border-radius:6px;width:100%;margin:4px 0;font-family:monospace}"
-        + ".ni{background:#080f1d;padding:9px;border-radius:6px;margin-bottom:5px;border-left:3px solid #37e5a5;font-size:12px;white-space:pre-wrap}.ip{font-size:12px;color:#8ca3be;margin-top:8px;word-break:break-all}"
-        + ".ok{color:#37e5a5}.wait{color:#ffd166}"
+        + "body{font-family:system-ui,sans-serif;color:#11213b;padding:16px;min-height:100vh;background:radial-gradient(circle at 8% 4%,#bceeff 0,transparent 30%),radial-gradient(circle at 93% 18%,#d5c4ff 0,transparent 31%),linear-gradient(145deg,#dff8ff,#c9d8f3 48%,#e7d8f5);background-attachment:fixed}"
+        + ".card,.terminal{background:#ffffff8c;border:1px solid #ffffffb8;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-radius:22px;padding:18px;margin-bottom:14px;box-shadow:0 10px 28px #57719632}"
+        + ".terminal{background:linear-gradient(135deg,#ffffffa6,#e9f6ff86);border-color:#ffffffd0}.bar{display:flex;justify-content:space-between;align-items:center;color:#18385e;border-bottom:1px solid #6b98bb55;padding-bottom:12px;font-size:12px}.bar b{font-size:14px;letter-spacing:.5px}.prompt{color:#2575c8;padding:12px 0 5px;font-size:13px}.cursor{animation:blink 1s step-end infinite}@keyframes blink{50%{opacity:0}}"
+        + "h1{font-size:21px;color:#18385e;margin-bottom:14px;font-weight:800}h1:before{content:''}"
+        + ".stat{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}.si{background:#ffffff9c;border:1px solid #ffffffd9;padding:13px;border-radius:16px;box-shadow:inset 0 1px #fff}"
+        + ".sl{font-size:12px;color:#68809b}.sv{font-size:25px;font-weight:800;color:#142a49;word-break:break-all}.btn{background:linear-gradient(135deg,#188cf0,#4f9cff);color:#fff;border:1px solid #ffffffa0;padding:11px 15px;border-radius:13px;cursor:pointer;margin:4px 2px 4px 0;font-weight:750;box-shadow:0 5px 12px #2776bd42}.btn:active{transform:scale(.97);filter:brightness(.9)}"
+        + "input{background:#ffffffe6;border:1px solid #ffffff;color:#18385e;padding:12px;border-radius:13px;width:100%;margin:5px 0;font-size:16px;box-shadow:inset 0 1px 3px #54708b22}.ni{background:#ffffffa8;padding:11px;border-radius:13px;margin-bottom:7px;border-left:4px solid #2d9df4;font-size:13px;white-space:pre-wrap;color:#233b59}.ip{font-size:13px;color:#4c6682;margin-top:10px;word-break:break-all}.ok{color:#148655;font-weight:800}.wait{color:#ae7411;font-weight:800}"
         + "</style></head><body>"
         + "<div class=terminal><div class=bar><span>● ● ●</span><b> NOTIFY-HUB // LOCAL CONSOLE</b><span id=status class=wait>● CONNECTING</span></div>"
         + "<div class=prompt>$ service.status <span class=cursor>_</span></div>"
         + "<div class=stat><div class=si><div class=sl>HTTP_PORT</div><div class=sv id=port>9531</div></div>"
         + "<div class=si><div class=sl>NOTIFICATIONS</div><div class=sv id=total>-</div></div></div>"
         + "<div class=ip id=ipbox>[ LAN ] initializing…</div></div>"
-        + "<div class=card><h1>⚙️ 修改端口</h1>"
+        + "<div class=card><h1>🎨 外观背景</h1>"
+        + "<button class=btn onclick=theme('glass')>玻璃蓝</button><button class=btn onclick=theme('terminal')>终端深色</button><button class=btn onclick=theme('purple')>紫霞</button>"
+        + "<input id=bg placeholder=背景图片URL（留空使用主题背景）><button class=btn onclick=saveBg()>保存背景</button>"
+        + "<div id=bgresult class=ip></div></div>"
+        + "<div class=card><h1>⚙️ 修改端口</h1>
         + "<input id=newport type=number value=9531 placeholder=端口号>"
         + "<button class=btn onclick=chport()>修改端口</button>"
         + "<div id=portresult style=margin-top:8px;font-size:13px></div></div>"
@@ -438,7 +453,12 @@ public class NotifyServer {
         + "<div id=peers style=margin-top:8px;font-size:13px></div></div>"
         + "<div class=card><h1>📋 最近（点击复制）</h1><div id=list></div></div>"
         + "<script>"
-        + "async function l(){try{const r=await fetch('/health',{cache:'no-store'});const d=await r.json();document.getElementById('total').textContent=d.recent_count;document.getElementById('port').textContent=d.port;document.getElementById('ipbox').textContent='局域网地址: http://'+d.lan_ip+':'+d.port+'/';document.getElementById('status').className='ok';document.getElementById('status').textContent='● ONLINE';}catch(e){document.getElementById('status').className='wait';document.getElementById('status').textContent='● RETRYING';document.getElementById('ipbox').textContent='服务启动中，正在自动重试…';}}"
+        + "const themes={glass:'radial-gradient(circle at 8% 4%,#bceeff 0,transparent 30%),radial-gradient(circle at 93% 18%,#d5c4ff 0,transparent 31%),linear-gradient(145deg,#dff8ff,#c9d8f3 48%,#e7d8f5)',terminal:'linear-gradient(145deg,#06111d,#0b2540 55%,#06121d)',purple:'radial-gradient(circle at 15% 5%,#e9c8ff 0,transparent 30%),linear-gradient(145deg,#e9ddff,#b8b7e9)'};"
+        + "function paint(t,b){document.body.style.backgroundImage=b?'linear-gradient(#ffffff55,#ffffff55),url('+b+')':themes[t]||themes.glass;document.body.style.backgroundSize=b?'cover':'auto';document.body.style.backgroundPosition='center';}"
+        + "async function ap(){try{const r=await fetch('/appearance');const d=await r.json();document.getElementById('bg').value=d.background||'';paint(d.theme,d.background);}catch(e){}}"
+        + "async function theme(t){await fetch('/appearance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:t,background:''})});paint(t,'');document.getElementById('bg').value='';}"
+        + "async function saveBg(){const b=document.getElementById('bg').value.trim();const r=await fetch('/appearance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:'glass',background:b})});const d=await r.json();document.getElementById('bgresult').textContent=d.ok?'✅背景已保存':'❌'+d.error;if(d.ok)paint('glass',b);}"
+        + "async function l(){try{const r=await fetch('/health',{cache:'no-store'});const d=await r.json();document.getElementById('total').textContent=d.recent_count;document.getElementById('port').textContent=d.port;document.getElementById('ipbox').textContent='局域网地址: http://'+d.lan_ip+':'+d.port+'/';document.getElementById('status').className='ok';document.getElementById('status').textContent='● ONLINE';}catch(e){document.getElementById('status').className='wait';document.getElementById('status').textContent='● RETRYING';document.getElementById('ipbox').textContent='服务启动中，正在自动重试…';}}
         + "async function cp(x){try{await navigator.clipboard.writeText(x);document.getElementById('r').textContent='✅已复制';}catch(e){const a=document.createElement('textarea');a.value=x;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();document.getElementById('r').textContent='✅已复制';}}"
         + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();document.getElementById('list').innerHTML=d.notifications.slice(0,20).map(n=>'<div class=ni onclick=cp(this.dataset.x) data-x='+JSON.stringify(n)+'>'+n+'</div>').join('');}catch(e){}}"
         + "async function peers(){try{const r=await fetch('/peers');const d=await r.json();document.getElementById('peers').textContent=d.peers.length?'在线 '+d.peers.length+' 台：'+d.peers.map(x=>x.name+' ('+x.ip+':'+x.port+')').join('、'):'暂未发现配对手机';}catch(e){}}"
@@ -447,6 +467,6 @@ public class NotifyServer {
         + "async function sendOne(){const t=document.getElementById('t').value;const b=document.getElementById('b').value;document.getElementById('r').textContent='发送中...';try{const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})});const d=await r.json();document.getElementById('r').innerHTML=d.ok?'<span style=color:#22c55e>✅已发送</span>':'<span style=color:#ef4444>❌失败</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "async function tbatch(){document.getElementById('r').textContent='批量发送中...';try{const arr=[{title:'批量1',body:'第一条通知'},{title:'批量2',body:'第二条通知'},{title:'批量3',body:'第三条通知'}];const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notifications:arr})});const d=await r.json();document.getElementById('r').innerHTML='<span style=color:#22c55e>✅发送'+d.sent+'条 失败'+d.failed+'条</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "async function chport(){const p=document.getElementById('newport').value;document.getElementById('portresult').textContent='修改中...';try{const r=await fetch('/port',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({port:parseInt(p)})});const d=await r.json();if(d.ok){document.getElementById('portresult').innerHTML='<span style=color:#22c55e>✅端口已改为'+d.new_port+' 请刷新</span>';setTimeout(()=>location.reload(),2000);}else{document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+(d.error||'失败')+'</span>';}}catch(e){document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
-        + "l();lr();peers();setInterval(()=>{l();lr();peers();},3000);"
+        + "ap();l();lr();peers();setInterval(()=>{l();lr();peers();},3000);"
         + "</script></body></html>";
 }
