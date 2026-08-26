@@ -42,7 +42,8 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new BackgroundBridge(), "NativeHub");
         webView.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView view, String url) {
-                applySavedLocalBackground();
+                // 页面自己的主题配置加载完后，再覆盖为本地图片，避免被默认主题重置。
+                webView.postDelayed(() -> applySavedLocalBackground(), 800);
             }
         });
         webView.loadUrl("http://127.0.0.1:" + server.getPort() + "/");
@@ -97,7 +98,8 @@ public class MainActivity extends Activity {
                 while ((n = in.read(buf)) > 0) { total += n; if (total > 8 * 1024 * 1024) throw new IOException("图片超过8MB"); out.write(buf, 0, n); }
             }
             getSharedPreferences("notify_relay", MODE_PRIVATE).edit().putString("local_bg", dst.getAbsolutePath()).apply();
-            applySavedLocalBackground();
+            // 复制完成后稍等WebView恢复，再注入本地 file:// 背景。
+            webView.postDelayed(() -> applySavedLocalBackground(), 150);
         } catch (Exception e) { Log.e(TAG, "background", e); }
     }
 
