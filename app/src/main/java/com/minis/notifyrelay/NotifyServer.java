@@ -112,39 +112,35 @@ public class NotifyServer {
         startTime = System.currentTimeMillis();
         serverThread = new Thread(() -> {
             final int fixedPort = port;
-            // 面板固定走9531；不允许服务悄悄换端口导致面板通知丢失。
+            ServerSocket localSocket = null;
             try {
-                serverSocket = new ServerSocket();
-                serverSocket.setReuseAddress(true);
-                serverSocket.bind(new java.net.InetSocketAddress(InetAddress.getByName("0.0.0.0"), fixedPort), 50);
+                // 每个监听线程只操作自己的socket；旧线程不能占住或关闭新线程端口。
+                localSocket = new ServerSocket();
+                localSocket.setReuseAddress(true);
+                localSocket.bind(new java.net.InetSocketAddress(InetAddress.getByName("0.0.0.0"), fixedPort), 50);
+                synchronized (NotifyServer.this) {
+                    if (!running || myGeneration != serverGeneration) { localSocket.close(); return; }
+                    serverSocket = localSocket;
+                }
                 port = fixedPort;
                 SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
                 String key = prefs.getString("lan_key", "");
-                if (key.length() < 4) {
-                    key = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-                    prefs.edit().putString("lan_key", key).commit();
-                }
-                lan = new LanPeerManager(context, port, key);
-                lan.start();
+                if (key.length() < 4) { key = UUID.randomUUID().toString().replace("-", "").substring(0, 12); prefs.edit().putString("lan_key", key).commit(); }
+                lan = new LanPeerManager(context, port, key); lan.start();
                 new FileTransferServer(context, port + 2, key).start();
-                Log.i(TAG, "HTTP server on 0.0.0.0:" + port);
+                Log.i(TAG, "HTTP server on fixed port " + port);
+                while (running && myGeneration == serverGeneration && !localSocket.isClosed()) {
+                    try {
+                        Socket client = localSocket.accept();
+                        client.setSoTimeout(10000);
+                        new Thread(() -> handleClient(client), "hub-http-client").start();
+                    } catch (IOException e) { if (running && myGeneration == serverGeneration) Log.e(TAG, "Accept: " + e.getMessage()); }
+                }
             } catch (IOException e) {
                 Log.e(TAG, "Cannot bind fixed port " + fixedPort + ": " + e.getMessage());
-            }
-            if (serverSocket == null || serverSocket.isClosed()) {
-                Log.e(TAG, "Fixed notification port unavailable!");
-                running = false;
-                return;
-            }
-            while (running && myGeneration == serverGeneration) {
-                try {
-                    Socket client = serverSocket.accept();
-                    // HTTP 请求必须在10秒内完成，防止半开连接拖死通知服务。
-                    client.setSoTimeout(10000);
-                    new Thread(() -> handleClient(client), "hub-http-client").start();
-                } catch (IOException e) {
-                    if (running) Log.e(TAG, "Accept: " + e.getMessage());
-                }
+            } finally {
+                try { if (localSocket != null) localSocket.close(); } catch (IOException e) { }
+                synchronized (NotifyServer.this) { if (serverSocket == localSocket) serverSocket = null; }
             }
         });
         serverThread.start();
