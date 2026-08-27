@@ -27,7 +27,8 @@ public class NotifyRelayService extends Service {
             .setOngoing(true).build();
         startForeground(ID, n);
         server = NotifyServer.getShared(this);
-        Log.i(TAG, "Foreground service sharing server on " + server.getPort());
+        server.start();
+        Log.i(TAG, "Foreground service owns server on " + server.getPort());
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) { return START_STICKY; }

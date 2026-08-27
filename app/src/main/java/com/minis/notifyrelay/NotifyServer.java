@@ -19,17 +19,16 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class NotifyServer {
     private static final String TAG = "NotifyRelay";
     private static NotifyServer shared;
 
-    /** Activity 与 Service 共享同一台HTTP/LAN server，杜绝端口竞争。 */
+    /** 单例只创建；9531 只能由前台 Service 显式启动，Activity 不参与监听生命周期。 */
     public static synchronized NotifyServer getShared(Context ctx) {
-        if (shared == null) {
-            shared = new NotifyServer(ctx.getApplicationContext());
-            shared.start();
-        }
+        if (shared == null) shared = new NotifyServer(ctx.getApplicationContext());
         return shared;
     }
     private static final String CHANNEL_ID = "panel_notify";
@@ -41,6 +40,10 @@ public class NotifyServer {
     private final Context context;
     private ServerSocket serverSocket;
     private Thread serverThread;
+    private final ExecutorService clientPool = Executors.newFixedThreadPool(4);
+    private volatile long requestCount = 0, successCount = 0, failureCount = 0;
+    private volatile String lastError = "";
+    private volatile long lastRequestTime = 0;
     private volatile boolean running = false;
     private volatile boolean watchdogStarted = false;
     private volatile int serverGeneration = 0;
@@ -136,7 +139,7 @@ public class NotifyServer {
                     try {
                         Socket client = socket.accept();
                         client.setSoTimeout(8000);
-                        new Thread(() -> handleClient(client), "hub-http-client").start();
+                        clientPool.execute(() -> handleClient(client));
                     } catch (IOException e) {
                         if (running) Log.w(TAG, "Accept: " + e.getMessage());
                     }
@@ -207,6 +210,8 @@ public class NotifyServer {
     }
 
     private void handleClient(Socket client) {
+        requestCount++;
+        lastRequestTime = System.currentTimeMillis();
         try {
             BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream(), "UTF-8"));
             String requestLine = reader.readLine();
@@ -402,7 +407,7 @@ public class NotifyServer {
             } else if ("GET".equals(method)) {
                 if (path.equals("/health")) {
                     long uptime = (System.currentTimeMillis() - startTime) / 1000;
-                    response = "{\"status\":\"ok\",\"service\":\"notify-relay\",\"port\":" + port + ",\"recent_count\":" + recent.size() + ",\"uptime\":" + uptime + ",\"lan_ip\":\"" + getLanIp() + "\"}";
+                    response = "{\"status\":\"ok\",\"service\":\"notify-relay\",\"port\":" + port + ",\"recent_count\":" + recent.size() + ",\"uptime\":" + uptime + ",\"lan_ip\":\"" + getLanIp() + "\",\"requests\":" + requestCount + ",\"success\":" + successCount + ",\"failed\":" + failureCount + ",\"last_request\":" + lastRequestTime + ",\"last_error\":\"" + esc(lastError) + "\"}";
                 } else if (path.equals("/recent")) {
                     StringBuilder sb = new StringBuilder("{\"count\":").append(recent.size()).append(",\"notifications\":[");
                     for (int i = 0; i < recent.size(); i++) {
@@ -426,7 +431,10 @@ public class NotifyServer {
             os.write(header.getBytes("UTF-8"));
             os.write(respBytes);
             os.flush();
+            successCount++;
         } catch (Exception e) {
+            failureCount++;
+            lastError = e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
             Log.e(TAG, "Client: " + e.getMessage());
         } finally {
             try { client.close(); } catch (IOException e) {}
