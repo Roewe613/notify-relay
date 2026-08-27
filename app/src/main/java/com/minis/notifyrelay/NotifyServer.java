@@ -42,6 +42,8 @@ public class NotifyServer {
     private ServerSocket serverSocket;
     private Thread serverThread;
     private volatile boolean running = false;
+    private volatile boolean watchdogStarted = false;
+    private volatile int serverGeneration = 0;
     private final List<String> recent = Collections.synchronizedList(new ArrayList<>());
     private long startTime;
     private int port = 9531;
@@ -103,8 +105,10 @@ public class NotifyServer {
     }
 
     public synchronized void start() {
-        if (running) return;
+        if (running && serverThread != null && serverThread.isAlive() && serverSocket != null && !serverSocket.isClosed()) return;
+        if (running) stop();
         running = true;
+        final int myGeneration = ++serverGeneration;
         startTime = System.currentTimeMillis();
         serverThread = new Thread(() -> {
             int tryPort = port;
@@ -136,7 +140,7 @@ public class NotifyServer {
                 running = false;
                 return;
             }
-            while (running) {
+            while (running && myGeneration == serverGeneration) {
                 try {
                     Socket client = serverSocket.accept();
                     // HTTP 请求必须在10秒内完成，防止半开连接拖死通知服务。
@@ -148,12 +152,39 @@ public class NotifyServer {
             }
         });
         serverThread.start();
+        startWatchdog();
+    }
+
+    private synchronized void startWatchdog() {
+        if (watchdogStarted) return;
+        watchdogStarted = true;
+        new Thread(() -> {
+            while (true) {
+                try { Thread.sleep(30000); } catch (InterruptedException e) { return; }
+                if (running && !isResponsive()) {
+                    Log.w(TAG, "HTTP server unresponsive; restarting listener");
+                    synchronized (NotifyServer.this) { stop(); start(); }
+                }
+            }
+        }, "hub-server-watchdog").start();
+    }
+
+    private boolean isResponsive() {
+        try (Socket s = new Socket()) {
+            s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 2500);
+            s.setSoTimeout(2500);
+            OutputStream out = s.getOutputStream();
+            out.write("GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".getBytes("UTF-8")); out.flush();
+            return s.getInputStream().read() > 0;
+        } catch (Exception e) { return false; }
     }
 
     public synchronized void stop() {
         running = false;
+        serverGeneration++;
         if (serverSocket != null) {
             try { serverSocket.close(); } catch (IOException e) {}
+            serverSocket = null;
         }
     }
 
