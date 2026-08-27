@@ -32,9 +32,8 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(android.graphics.Color.rgb(8, 13, 24));
         getWindow().setNavigationBarColor(android.graphics.Color.rgb(8, 13, 24));
         requestNotificationPermission();
+        // 仅获取唯一共享server。前台Service负责保活，Activity不再反复重建监听线程。
         server = NotifyServer.getShared(this);
-        // 主界面打开时强制验证并重建9531，避免旧半死socket一直占着端口。
-        server.forceRestart();
         try {
             Intent serviceIntent = new Intent(this, NotifyRelayService.class);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent);

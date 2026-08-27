@@ -144,7 +144,7 @@ public class NotifyServer {
             }
         });
         serverThread.start();
-        startWatchdog();
+        // 前台Service已负责保活；不在运行中重建监听线程，避免端口交接竞态。
     }
 
     private synchronized void startWatchdog() {
