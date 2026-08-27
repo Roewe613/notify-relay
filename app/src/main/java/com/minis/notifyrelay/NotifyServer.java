@@ -79,7 +79,7 @@ public class NotifyServer {
                 List<String> list = new ArrayList<>(saved);
                 Collections.sort(list, Collections.reverseOrder());
                 recent.addAll(list);
-                while (recent.size() > 50) recent.remove(recent.size() - 1);
+                while (recent.size() > 200) recent.remove(recent.size() - 1);
             }
         } catch (Exception e) {
             Log.w(TAG, "loadRecent: " + e.getMessage());
@@ -98,7 +98,7 @@ public class NotifyServer {
 
     private void addRecent(String entry) {
         recent.add(0, entry);
-        while (recent.size() > 50) recent.remove(recent.size() - 1);
+        while (recent.size() > 200) recent.remove(recent.size() - 1);
         saveRecent();
     }
 
@@ -236,6 +236,17 @@ public class NotifyServer {
                     String header = "HTTP/1.1 200 OK\r\nContent-Type: " + prefs.getString("local_bg_mime", "image/jpeg") + "\r\nContent-Length: " + img.length + "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
                     OutputStream os = client.getOutputStream(); os.write(header.getBytes("UTF-8")); os.write(img); os.flush(); return;
                 }
+            } else if ("POST".equals(method) && path.equals("/recent/delete")) {
+                try {
+                    int index = new JSONObject(body).getInt("index");
+                    synchronized (recent) {
+                        if (index >= 0 && index < recent.size()) { recent.remove(index); saveRecent(); response = "{\"ok\":true}"; }
+                        else response = "{\"ok\":false,\"error\":\"not found\"}";
+                    }
+                } catch (Exception e) { response = "{\"ok\":false,\"error\":\"invalid index\"}"; }
+            } else if ("POST".equals(method) && path.equals("/recent/clear")) {
+                synchronized (recent) { recent.clear(); saveRecent(); }
+                response = "{\"ok\":true}";
             } else if ("GET".equals(method) && path.equals("/peers")) {
                 response = "{\"ok\":true,\"peers\":" + (lan == null ? "[]" : lan.peersJson()) + "}";
             } else if ("GET".equals(method) && path.equals("/appearance")) {
@@ -479,7 +490,7 @@ public class NotifyServer {
         + "h1{font-size:21px;color:#18385e;margin-bottom:14px;font-weight:800}h1:before{content:''}"
         + ".stat{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}.si{background:#ffffff9c;border:1px solid #ffffffd9;padding:13px;border-radius:16px;box-shadow:inset 0 1px #fff}"
         + ".sl{font-size:12px;color:#68809b}.sv{font-size:25px;font-weight:800;color:#142a49;word-break:break-all}.btn{background:linear-gradient(135deg,#188cf0,#4f9cff);color:#fff;border:1px solid #ffffffa0;padding:11px 15px;border-radius:13px;cursor:pointer;margin:4px 2px 4px 0;font-weight:750;box-shadow:0 5px 12px #2776bd42}.btn:active{transform:scale(.97);filter:brightness(.9)}"
-        + "input{background:#ffffffe6;border:1px solid #ffffff;color:#18385e;padding:12px;border-radius:13px;width:100%;margin:5px 0;font-size:16px;box-shadow:inset 0 1px 3px #54708b22}.ni{background:#ffffffa8;padding:11px;border-radius:13px;margin-bottom:7px;border-left:4px solid #2d9df4;font-size:13px;white-space:pre-wrap;color:#233b59}.ip{font-size:13px;color:#4c6682;margin-top:10px;word-break:break-all}.ok{color:#148655;font-weight:800}.wait{color:#ae7411;font-weight:800}"
+        + "input{background:#ffffffe6;border:1px solid #ffffff;color:#18385e;padding:12px;border-radius:13px;width:100%;margin:5px 0;font-size:16px;box-shadow:inset 0 1px 3px #54708b22}.ni{background:#ffffffa8;padding:11px;border-radius:13px;margin-bottom:7px;border-left:4px solid #2d9df4;font-size:13px;white-space:pre-wrap;color:#233b59}.logrow{display:flex;gap:7px;align-items:stretch}.logrow .ni{flex:1}.del{border:0;background:#d95a70;color:white;border-radius:12px;min-width:42px;font-size:20px;margin-bottom:7px}.ip{font-size:13px;color:#4c6682;margin-top:10px;word-break:break-all}.ok{color:#148655;font-weight:800}.wait{color:#ae7411;font-weight:800}"
         + "</style></head><body>"
         + "<div class=terminal><div class=bar><span>● ● ●</span><b> NOTIFY-HUB // LOCAL CONSOLE</b><span id=status class=wait>● CONNECTING</span></div>"
         + "<div class=prompt>$ service.status <span class=cursor>_</span></div>"
@@ -506,7 +517,7 @@ public class NotifyServer {
         + "<button class=btn onclick=NativeHub.pickFile()>选择图片/文件群发</button>"
         + "<div class=ip>文件仅发送给已配对在线设备｜单文件最大 20MB｜接收端不会自动执行</div><div id=fileResult class=ip></div>"
         + "<div id=peers style=margin-top:8px;font-size:13px></div></div>"
-        + "<div class=card><h1>📋 最近（点击复制）</h1><div id=list></div></div>"
+        + "<div class=card><h1>📋 通知历史</h1><div class=ip>点击内容复制｜右侧 × 删除｜最多保留 200 条</div><button class=btn onclick=clearRecent()>清空历史</button><div id=list></div></div>"
         + "<script>"
         + "const themes={glass:'radial-gradient(circle at 8% 4%,#bceeff 0,transparent 30%),radial-gradient(circle at 93% 18%,#d5c4ff 0,transparent 31%),linear-gradient(145deg,#dff8ff,#c9d8f3 48%,#e7d8f5)',terminal:'linear-gradient(145deg,#06111d,#0b2540 55%,#06121d)',purple:'radial-gradient(circle at 15% 5%,#e9c8ff 0,transparent 30%),linear-gradient(145deg,#e9ddff,#b8b7e9)'};"
         + "function paint(t,b){document.body.style.backgroundImage=b?'linear-gradient(#ffffff55,#ffffff55),url('+b+')':themes[t]||themes.glass;document.body.style.backgroundSize=b?'cover':'auto';document.body.style.backgroundPosition='center';}function setLocalBg(b){if(b)paint('glass',b);}function clearLocalBg(){NativeHub.clearLocalBackground();paint('glass','');}"
@@ -515,7 +526,8 @@ public class NotifyServer {
         + "async function saveBg(){const b=document.getElementById('bg').value.trim();const r=await fetch('/appearance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:'glass',background:b})});const d=await r.json();document.getElementById('bgresult').textContent=d.ok?'✅背景已保存':'❌'+d.error;if(d.ok)paint('glass',b);}"
         + "async function l(){try{const r=await fetch('/health',{cache:'no-store'});const d=await r.json();document.getElementById('total').textContent=d.recent_count;document.getElementById('port').textContent=d.port;document.getElementById('ipbox').textContent='局域网地址: http://'+d.lan_ip+':'+d.port+'/';document.getElementById('status').className='ok';document.getElementById('status').textContent='● ONLINE';}catch(e){document.getElementById('status').className='wait';document.getElementById('status').textContent='● RETRYING';document.getElementById('ipbox').textContent='服务启动中，正在自动重试…';}}"
         + "function cp(x){try{if(window.NativeHub&&NativeHub.copyText){NativeHub.copyText(x);}else{const a=document.createElement('textarea');a.value=x;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();}document.getElementById('r').textContent='✅已复制完整内容';}catch(e){document.getElementById('r').textContent='❌复制失败';}}"
-        + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();const box=document.getElementById('list');box.innerHTML='';d.notifications.slice(0,50).forEach(n=>{const el=document.createElement('div');el.className='ni';el.textContent=n;el.onclick=()=>cp(n);box.appendChild(el);});}catch(e){}}"
+        + "async function delRecent(i){await fetch('/recent/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:i})});lr();l();}async function clearRecent(){if(confirm('确认清空通知枢纽历史？此操作不可恢复')){await fetch('/recent/clear',{method:'POST'});lr();l();}}"
+        + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();const box=document.getElementById('list');box.innerHTML='';d.notifications.slice(0,200).forEach((n,i)=>{const row=document.createElement('div');row.className='logrow';const el=document.createElement('div');el.className='ni';el.textContent=n;el.onclick=()=>cp(n);const b=document.createElement('button');b.className='del';b.textContent='×';b.onclick=()=>delRecent(i);row.appendChild(el);row.appendChild(b);box.appendChild(row);});}catch(e){}}
         + "async function peers(){try{const r=await fetch('/peers');const d=await r.json();document.getElementById('peers').textContent=d.peers.length?'在线 '+d.peers.length+' 台：'+d.peers.map(x=>x.name+' ('+x.ip+':'+x.port+')').join('、'):'暂未发现配对手机';}catch(e){}}"
         + "function fileResult(x){document.getElementById('fileResult').textContent=x;}"
         + "async function saveKey(){const k=document.getElementById('lanKey').value.trim();if(k.length<4){document.getElementById('peers').textContent='密钥至少4位';return}await fetch('/lan/key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:k})});document.getElementById('peers').textContent='✅已保存，等待发现其他手机';}"
