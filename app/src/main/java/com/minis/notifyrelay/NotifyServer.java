@@ -300,7 +300,7 @@ public class NotifyServer {
                 } catch (Exception e) { response = "{\"ok\":false,\"error\":\"invalid index\"}"; }
             } else if ("POST".equals(method) && path.equals("/recent/clear")) {
                 synchronized (recent) { recent.clear(); saveRecent(); }
-                response = "{\"ok\":true}";
+                response = "{\"ok\":true,\"remaining\":0}";
             } else if ("GET".equals(method) && path.equals("/peers")) {
                 response = "{\"ok\":true,\"peers\":" + (lan == null ? "[]" : lan.peersJson()) + "}";
             } else if ("GET".equals(method) && path.equals("/appearance")) {
@@ -450,6 +450,7 @@ public class NotifyServer {
             RemoteViews compact = new RemoteViews(context.getPackageName(), R.layout.notification_hub);
             String label = "通知枢纽 // MESSAGE";
             int bg = R.drawable.notification_hub_bg;
+            boolean forecast = title.contains("🔮") || title.contains("新奥") || title.contains("预测");
             if (title.contains("💰") || title.contains("🎉") || title.contains("🔥") || title.contains("下注")) {
                 label = "通知枢纽 // SUCCESS"; bg = R.drawable.notification_hub_success;
             } else if (title.contains("⚠") || title.contains("❌") || title.contains("异常") || title.contains("失败")) {
@@ -459,9 +460,21 @@ public class NotifyServer {
                 bg = R.drawable.notification_hub_forecast;
             }
             compact.setInt(R.id.hub_root, "setBackgroundResource", bg);
-            compact.setTextViewText(R.id.hub_label, label);
-            compact.setTextViewText(R.id.hub_title, title);
-            compact.setTextViewText(R.id.hub_body, content);
+            if (forecast && content.startsWith("重点：")) {
+                // 分档长号码：去掉装饰栏，把重点码放标题，正文三行专供完整号码。
+                int cut = content.indexOf('\n');
+                String focus = cut > 0 ? content.substring(0, cut).replace("重点：", "重点 ") : content.replace("重点：", "重点 ");
+                String numbers = cut > 0 ? content.substring(cut + 1) : "";
+                compact.setViewVisibility(R.id.hub_mark, android.view.View.GONE);
+                compact.setViewVisibility(R.id.hub_label, android.view.View.GONE);
+                compact.setViewVisibility(R.id.hub_status, android.view.View.GONE);
+                compact.setTextViewText(R.id.hub_title, title.replace("新奥 ", "") + "｜" + focus);
+                compact.setTextViewText(R.id.hub_body, numbers);
+            } else {
+                compact.setTextViewText(R.id.hub_label, label);
+                compact.setTextViewText(R.id.hub_title, title);
+                compact.setTextViewText(R.id.hub_body, content);
+            }
             Notification notif = new Notification.Builder(context, CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(content)
@@ -586,7 +599,7 @@ public class NotifyServer {
         + "async function saveBg(){const b=document.getElementById('bg').value.trim();const r=await fetch('/appearance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:'glass',background:b})});const d=await r.json();document.getElementById('bgresult').textContent=d.ok?'✅背景已保存':'❌'+d.error;if(d.ok)paint('glass',b);}"
         + "async function l(){try{const r=await fetch('/health',{cache:'no-store'});const d=await r.json();document.getElementById('total').textContent=d.recent_count;document.getElementById('port').textContent=d.port;document.getElementById('ipbox').textContent='局域网地址: http://'+d.lan_ip+':'+d.port+'/';document.getElementById('status').className='ok';document.getElementById('status').textContent='● ONLINE';}catch(e){document.getElementById('status').className='wait';document.getElementById('status').textContent='● RETRYING';document.getElementById('ipbox').textContent='服务启动中，正在自动重试…';}}"
         + "function cp(x){try{if(window.NativeHub&&NativeHub.copyText){NativeHub.copyText(x);}else{const a=document.createElement('textarea');a.value=x;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();}document.getElementById('r').textContent='✅已复制完整内容';}catch(e){document.getElementById('r').textContent='❌复制失败';}}"
-        + "async function delRecent(i){await fetch('/recent/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:i})});lr();l();}async function clearRecent(){if(confirm('确认清空通知枢纽历史？此操作不可恢复')){await fetch('/recent/clear',{method:'POST'});lr();l();}}"
+        + "async function delRecent(i){await fetch('/recent/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:i})});lr();l();}async function clearRecent(){if(confirm('确认清空通知枢纽历史？此操作不可恢复')){const r=await fetch('/recent/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const d=await r.json();document.getElementById('r').textContent=d.ok?'✅历史已清空':'❌清空失败';await lr();await l();}}"
         + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();const box=document.getElementById('list');box.innerHTML='';d.notifications.slice(0,200).forEach((n,i)=>{const row=document.createElement('div');row.className='logrow';const el=document.createElement('div');el.className='ni';el.textContent=n;el.onclick=()=>cp(n);const b=document.createElement('button');b.className='del';b.textContent='×';b.onclick=()=>delRecent(i);row.appendChild(el);row.appendChild(b);box.appendChild(row);});}catch(e){}}"
         + "async function mods(){try{const d=await (await fetch('/modules')).json();document.getElementById('lanToggle').textContent='局域网发现：'+(d.lan?'开启':'关闭');document.getElementById('fileToggle').textContent='文件传输：'+(d.file?'开启':'关闭');document.getElementById('modules').textContent='UDP 9532 '+(d.lan?'运行中':'已关闭')+'｜文件 '+d.file_port+' '+(d.file?'运行中':'已关闭')+'｜9531核心不受影响';}catch(e){}}"
         + "async function toggleMod(n){const d=await (await fetch('/modules')).json();const on=n==='lan'?!d.lan:!d.file;await fetch('/modules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,enabled:on})});mods();peers();}"
