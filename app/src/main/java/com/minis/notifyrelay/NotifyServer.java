@@ -560,6 +560,9 @@ public class NotifyServer {
         + "<button class=btn onclick=sendOne()>发送</button>"
         + "<button class=btn onclick=tbatch()>批量测试3条</button>"
         + "<div id=r style=margin-top:8px;font-size:13px></div></div>"
+        + "<div class=card><h1>🧩 独立扩展模块</h1><div class=ip>9531 核心通知始终独立运行；下列模块默认关闭。</div>"
+        + "<button class=btn id=lanToggle onclick=toggleMod('lan')>局域网发现：关闭</button><button class=btn id=fileToggle onclick=toggleMod('file')>文件传输：关闭</button>"
+        + "<div id=modules class=ip>UDP 9532｜文件 9533｜按需启用</div></div>"
         + "<div class=card><h1>📱 局域网设备</h1>"
         + "<input id=lanKey placeholder=配对密钥（所有手机填相同内容）>"
         + "<button class=btn onclick=saveKey()>保存并发现</button><button class=btn onclick=sendPeers()>群发文字</button>"
@@ -577,6 +580,8 @@ public class NotifyServer {
         + "function cp(x){try{if(window.NativeHub&&NativeHub.copyText){NativeHub.copyText(x);}else{const a=document.createElement('textarea');a.value=x;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();}document.getElementById('r').textContent='✅已复制完整内容';}catch(e){document.getElementById('r').textContent='❌复制失败';}}"
         + "async function delRecent(i){await fetch('/recent/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:i})});lr();l();}async function clearRecent(){if(confirm('确认清空通知枢纽历史？此操作不可恢复')){await fetch('/recent/clear',{method:'POST'});lr();l();}}"
         + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();const box=document.getElementById('list');box.innerHTML='';d.notifications.slice(0,200).forEach((n,i)=>{const row=document.createElement('div');row.className='logrow';const el=document.createElement('div');el.className='ni';el.textContent=n;el.onclick=()=>cp(n);const b=document.createElement('button');b.className='del';b.textContent='×';b.onclick=()=>delRecent(i);row.appendChild(el);row.appendChild(b);box.appendChild(row);});}catch(e){}}"
+        + "async function mods(){try{const d=await (await fetch('/modules')).json();document.getElementById('lanToggle').textContent='局域网发现：'+(d.lan?'开启':'关闭');document.getElementById('fileToggle').textContent='文件传输：'+(d.file?'开启':'关闭');document.getElementById('modules').textContent='UDP 9532 '+(d.lan?'运行中':'已关闭')+'｜文件 '+d.file_port+' '+(d.file?'运行中':'已关闭')+'｜9531核心不受影响';}catch(e){}}"
+        + "async function toggleMod(n){const d=await (await fetch('/modules')).json();const on=n==='lan'?!d.lan:!d.file;await fetch('/modules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,enabled:on})});mods();peers();}"
         + "async function peers(){try{const r=await fetch('/peers');const d=await r.json();document.getElementById('peers').textContent=d.peers.length?'在线 '+d.peers.length+' 台：'+d.peers.map(x=>x.name+' ('+x.ip+':'+x.port+')').join('、'):'暂未发现配对手机';}catch(e){}}"
         + "function fileResult(x){document.getElementById('fileResult').textContent=x;}"
         + "async function saveKey(){const k=document.getElementById('lanKey').value.trim();if(k.length<4){document.getElementById('peers').textContent='密钥至少4位';return}await fetch('/lan/key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:k})});document.getElementById('peers').textContent='✅已保存，等待发现其他手机';}"
@@ -584,6 +589,6 @@ public class NotifyServer {
         + "async function sendOne(){const t=document.getElementById('t').value;const b=document.getElementById('b').value;document.getElementById('r').textContent='发送中...';try{const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})});const d=await r.json();document.getElementById('r').innerHTML=d.ok?'<span style=color:#22c55e>✅已发送</span>':'<span style=color:#ef4444>❌失败</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "async function tbatch(){document.getElementById('r').textContent='批量发送中...';try{const arr=[{title:'批量1',body:'第一条通知'},{title:'批量2',body:'第二条通知'},{title:'批量3',body:'第三条通知'}];const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notifications:arr})});const d=await r.json();document.getElementById('r').innerHTML='<span style=color:#22c55e>✅发送'+d.sent+'条 失败'+d.failed+'条</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "async function chport(){const p=document.getElementById('newport').value;document.getElementById('portresult').textContent='修改中...';try{const r=await fetch('/port',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({port:parseInt(p)})});const d=await r.json();if(d.ok){document.getElementById('portresult').innerHTML='<span style=color:#22c55e>✅端口已改为'+d.new_port+' 请刷新</span>';setTimeout(()=>location.reload(),2000);}else{document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+(d.error||'失败')+'</span>';}}catch(e){document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
-        + "ap();l();lr();peers();setInterval(()=>{l();lr();peers();},3000);"
+        + "ap();l();lr();peers();mods();setInterval(()=>{l();lr();peers();mods();},3000);"
         + "</script></body></html>";
 }
