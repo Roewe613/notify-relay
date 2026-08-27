@@ -48,6 +48,7 @@ public class NotifyServer {
     private long startTime;
     private int port = 9531;
     private LanPeerManager lan;
+    private FileTransferServer fileTransfer;
 
     public NotifyServer(Context ctx) {
         context = ctx;
@@ -58,7 +59,21 @@ public class NotifyServer {
     }
 
     public int getPort() { return port; }
-    public int broadcastFile(File file, String mime) { return lan == null ? 0 : lan.broadcastFile(file, mime); }
+    public synchronized boolean isLanEnabled() { return lan != null; }
+    public synchronized boolean isFileEnabled() { return fileTransfer != null; }
+    public synchronized void setLanEnabled(boolean enabled) {
+        if (enabled && lan == null) {
+            SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
+            String key = prefs.getString("lan_key", "");
+            if (key.length() < 4) { key = UUID.randomUUID().toString().replace("-", "").substring(0,12); prefs.edit().putString("lan_key", key).commit(); }
+            lan = new LanPeerManager(context, port, key); lan.start();
+        } else if (!enabled && lan != null) { lan.stop(); lan = null; if (fileTransfer != null) { fileTransfer.stop(); fileTransfer = null; } }
+    }
+    public synchronized void setFileEnabled(boolean enabled) {
+        if (enabled) { if (lan == null) setLanEnabled(true); if (fileTransfer == null) { fileTransfer = new FileTransferServer(context, port + 2, ""); fileTransfer.start(); } }
+        else if (fileTransfer != null) { fileTransfer.stop(); fileTransfer = null; }
+    }
+    public int broadcastFile(File file, String mime) { return (lan == null || fileTransfer == null) ? 0 : lan.broadcastFile(file, mime); }
 
     private void ensureChannel() {
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -227,7 +242,18 @@ public class NotifyServer {
                 return;
             }
 
-            if ("POST".equals(method) && path.equals("/file")) {
+            if ("GET".equals(method) && path.equals("/modules")) {
+                response = "{\"lan\":" + isLanEnabled() + ",\"file\":" + isFileEnabled() + ",\"file_port\":" + (port + 2) + "}";
+            } else if ("POST".equals(method) && path.equals("/modules")) {
+                try {
+                    JSONObject json = new JSONObject(body);
+                    String name = json.optString("name", ""); boolean enabled = json.optBoolean("enabled", false);
+                    if ("lan".equals(name)) setLanEnabled(enabled);
+                    else if ("file".equals(name)) setFileEnabled(enabled);
+                    else throw new Exception("unknown");
+                    response = "{\"ok\":true,\"lan\":" + isLanEnabled() + ",\"file\":" + isFileEnabled() + "}";
+                } catch (Exception e) { response = "{\"ok\":false,\"error\":\"invalid module\"}"; }
+            } else if ("POST".equals(method) && path.equals("/file")) {
                 try {
                     JSONObject json = new JSONObject(body);
                     String key = json.optString("relay_key", "");

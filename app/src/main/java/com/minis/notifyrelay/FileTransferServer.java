@@ -11,12 +11,15 @@ public class FileTransferServer {
     private static final String TAG="HubFile";
     private final Context context; private final int port;
     private volatile boolean running;
+    private volatile ServerSocket socket;
     public FileTransferServer(Context c,int port,String key){context=c;this.port=port;}
     public void start(){ if(running)return;running=true;new Thread(this::loop,"hub-file-server").start(); }
+    public void stop(){ running=false; try{if(socket!=null)socket.close();}catch(Exception e){} socket=null; }
     private void loop(){
         try(ServerSocket ss=new ServerSocket(port,10,InetAddress.getByName("0.0.0.0"))){
-            while(running){try{Socket s=ss.accept();new Thread(()->receive(s)).start();}catch(Exception e){}}
-        }catch(Exception e){Log.e(TAG,"server "+e.getMessage());}
+            socket=ss;
+            while(running){try{Socket s=ss.accept();s.setSoTimeout(30000);new Thread(()->receive(s),"hub-file-client").start();}catch(Exception e){}}
+        }catch(Exception e){if(running)Log.e(TAG,"server "+e.getMessage());}finally{socket=null;running=false;}
     }
     private void receive(Socket s){
         try{

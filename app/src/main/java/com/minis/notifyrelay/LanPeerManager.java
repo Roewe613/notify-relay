@@ -18,6 +18,7 @@ public class LanPeerManager {
     private final int httpPort, filePort;
     private final ConcurrentHashMap<String, Peer> peers = new ConcurrentHashMap<>();
     private volatile boolean running;
+    private volatile DatagramSocket listenSocket;
     private String groupKey;
 
     public static class Peer {
@@ -32,10 +33,10 @@ public class LanPeerManager {
         new Thread(this::listen, "relay-lan-listen").start();
         new Thread(() -> { while(running) { announce(); clean(); try { Thread.sleep(10000); } catch(Exception e){} } }, "relay-lan-announce").start();
     }
-    public void stop() { running=false; }
+    public void stop() { running=false; peers.clear(); try{if(listenSocket!=null)listenSocket.close();}catch(Exception e){} }
     private void listen() {
         try (DatagramSocket s = new DatagramSocket(DISCOVERY_PORT, InetAddress.getByName("0.0.0.0"))) {
-            s.setBroadcast(true); byte[] b=new byte[1024];
+            listenSocket=s; s.setBroadcast(true); byte[] b=new byte[1024];
             while(running) try {
                 DatagramPacket p=new DatagramPacket(b,b.length); s.receive(p);
                 JSONObject j=new JSONObject(new String(p.getData(),0,p.getLength(),"UTF-8"));
