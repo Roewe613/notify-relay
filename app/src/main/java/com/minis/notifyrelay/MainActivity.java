@@ -59,6 +59,10 @@ public class MainActivity extends Activity {
                 startActivityForResult(i, REQ_BG);
             });
         }
+        @JavascriptInterface public void copyText(String text) {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("通知枢纽", text));
+        }
         @JavascriptInterface public void pickFile() {
             runOnUiThread(() -> {
                 Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
