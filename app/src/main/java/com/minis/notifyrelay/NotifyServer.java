@@ -111,32 +111,28 @@ public class NotifyServer {
         final int myGeneration = ++serverGeneration;
         startTime = System.currentTimeMillis();
         serverThread = new Thread(() -> {
-            int tryPort = port;
-            for (int attempt = 0; attempt < 20; attempt++) {
-                try {
-                    // 显式复用端口，避免 App 重开后旧 socket 的短暂占用导致监听异常。
-                    serverSocket = new ServerSocket();
-                    serverSocket.setReuseAddress(true);
-                    serverSocket.bind(new java.net.InetSocketAddress(InetAddress.getByName("0.0.0.0"), tryPort), 50);
-                    port = tryPort;
-                    SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
-                    String key = prefs.getString("lan_key", "");
-                    if (key.length() < 4) {
-                        key = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-                        prefs.edit().putString("lan_key", key).commit();
-                    }
-                    lan = new LanPeerManager(context, port, key);
-                    lan.start();
-                    new FileTransferServer(context, port + 2, key).start();
-                    Log.i(TAG, "HTTP server on 0.0.0.0:" + port);
-                    break;
-                } catch (IOException e) {
-                    Log.w(TAG, "Port " + tryPort + " in use, trying " + (tryPort + 1));
-                    tryPort++;
+            final int fixedPort = port;
+            // 面板固定走9531；不允许服务悄悄换端口导致面板通知丢失。
+            try {
+                serverSocket = new ServerSocket();
+                serverSocket.setReuseAddress(true);
+                serverSocket.bind(new java.net.InetSocketAddress(InetAddress.getByName("0.0.0.0"), fixedPort), 50);
+                port = fixedPort;
+                SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
+                String key = prefs.getString("lan_key", "");
+                if (key.length() < 4) {
+                    key = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+                    prefs.edit().putString("lan_key", key).commit();
                 }
+                lan = new LanPeerManager(context, port, key);
+                lan.start();
+                new FileTransferServer(context, port + 2, key).start();
+                Log.i(TAG, "HTTP server on 0.0.0.0:" + port);
+            } catch (IOException e) {
+                Log.e(TAG, "Cannot bind fixed port " + fixedPort + ": " + e.getMessage());
             }
-            if (serverSocket == null) {
-                Log.e(TAG, "No available port!");
+            if (serverSocket == null || serverSocket.isClosed()) {
+                Log.e(TAG, "Fixed notification port unavailable!");
                 running = false;
                 return;
             }
@@ -179,11 +175,18 @@ public class NotifyServer {
         } catch (Exception e) { return false; }
     }
 
+    /** 每次App显式打开时强制回收旧监听，解决端口假存活/半死连接。 */
+    public synchronized void forceRestart() {
+        stop();
+        try { Thread.sleep(120); } catch (InterruptedException ignored) { }
+        start();
+    }
+
     public synchronized void stop() {
         running = false;
         serverGeneration++;
         if (serverSocket != null) {
-            try { serverSocket.close(); } catch (IOException e) {}
+            try { serverSocket.close(); } catch (IOException e) { }
             serverSocket = null;
         }
     }
