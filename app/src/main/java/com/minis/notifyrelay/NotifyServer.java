@@ -110,7 +110,10 @@ public class NotifyServer {
             int tryPort = port;
             for (int attempt = 0; attempt < 20; attempt++) {
                 try {
-                    serverSocket = new ServerSocket(tryPort, 50, InetAddress.getByName("0.0.0.0"));
+                    // 显式复用端口，避免 App 重开后旧 socket 的短暂占用导致监听异常。
+                    serverSocket = new ServerSocket();
+                    serverSocket.setReuseAddress(true);
+                    serverSocket.bind(new java.net.InetSocketAddress(InetAddress.getByName("0.0.0.0"), tryPort), 50);
                     port = tryPort;
                     SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
                     String key = prefs.getString("lan_key", "");
@@ -136,7 +139,9 @@ public class NotifyServer {
             while (running) {
                 try {
                     Socket client = serverSocket.accept();
-                    new Thread(() -> handleClient(client)).start();
+                    // HTTP 请求必须在10秒内完成，防止半开连接拖死通知服务。
+                    client.setSoTimeout(10000);
+                    new Thread(() -> handleClient(client), "hub-http-client").start();
                 } catch (IOException e) {
                     if (running) Log.e(TAG, "Accept: " + e.getMessage());
                 }
