@@ -33,7 +33,11 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(android.graphics.Color.rgb(8, 13, 24));
         requestNotificationPermission();
         server = NotifyServer.getShared(this);
-        try { startService(new Intent(this, NotifyRelayService.class)); } catch (Exception e) { Log.w(TAG, "Service: " + e.getMessage()); }
+        try {
+            Intent serviceIntent = new Intent(this, NotifyRelayService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent);
+            else startService(serviceIntent);
+        } catch (Exception e) { Log.w(TAG, "Service: " + e.getMessage()); }
 
         webView = new WebView(this);
         webView.getSettings().setJavaScriptEnabled(true);

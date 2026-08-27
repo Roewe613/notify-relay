@@ -1,34 +1,39 @@
 package com.minis.notifyrelay;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
 import android.os.IBinder;
 import android.util.Log;
 
+/** 前台保活：让ColorOS不会冻结9531通知服务器。 */
 public class NotifyRelayService extends Service {
     private static final String TAG = "NotifyRelay";
+    private static final String CHANNEL = "hub_service";
+    private static final int ID = 8101;
     private NotifyServer server;
+    @Override public IBinder onBind(Intent intent) { return null; }
 
-    @Override
-    public IBinder onBind(Intent intent) { return null; }
-
-    @Override
-    public void onCreate() {
+    @Override public void onCreate() {
         super.onCreate();
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        if (nm != null) nm.createNotificationChannel(new NotificationChannel(CHANNEL, "通知枢纽服务", NotificationManager.IMPORTANCE_MIN));
+        Notification n = new Notification.Builder(this, CHANNEL)
+            .setSmallIcon(android.R.drawable.stat_sys_upload_done)
+            .setContentTitle("通知枢纽运行中")
+            .setContentText("本机通知服务 9531")
+            .setOngoing(true).build();
+        startForeground(ID, n);
         server = NotifyServer.getShared(this);
-        Log.i(TAG, "Service sharing server on port " + server.getPort());
+        Log.i(TAG, "Foreground service sharing server on " + server.getPort());
     }
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        return START_STICKY;
-    }
-
-    @Override
-    public void onDestroy() {
-        // server 为 Activity/Service 共享实例；Service 被系统回收时不能关闭它。
-        // 否则前台界面还在，但 9531 会被错误关闭。
-        Log.i(TAG, "Service destroyed; shared server remains managed by app process");
+    @Override public int onStartCommand(Intent intent, int flags, int startId) { return START_STICKY; }
+    @Override public void onDestroy() {
+        // 共享server保留给应用进程与watchdog；系统重启Service后自动接管。
+        Log.i(TAG, "Foreground service destroyed");
         super.onDestroy();
     }
 }
