@@ -104,47 +104,35 @@ public class NotifyServer {
         saveRecent();
     }
 
+    /**
+     * 核心通知监听器：单线程、固定9531、没有自动换端口/自动重建。
+     * 局域网发现和大文件传输不参与此处启动，避免影响面板通知主链路。
+     */
     public synchronized void start() {
-        if (running && serverThread != null && serverThread.isAlive() && serverSocket != null && !serverSocket.isClosed()) return;
-        if (running) stop();
+        if (running) return;
         running = true;
-        final int myGeneration = ++serverGeneration;
         startTime = System.currentTimeMillis();
         serverThread = new Thread(() -> {
-            final int fixedPort = port;
-            ServerSocket localSocket = null;
             try {
-                // 每个监听线程只操作自己的socket；旧线程不能占住或关闭新线程端口。
-                localSocket = new ServerSocket();
-                localSocket.setReuseAddress(true);
-                localSocket.bind(new java.net.InetSocketAddress(InetAddress.getByName("0.0.0.0"), fixedPort), 50);
-                synchronized (NotifyServer.this) {
-                    if (!running || myGeneration != serverGeneration) { localSocket.close(); return; }
-                    serverSocket = localSocket;
-                }
-                port = fixedPort;
-                SharedPreferences prefs = context.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
-                String key = prefs.getString("lan_key", "");
-                if (key.length() < 4) { key = UUID.randomUUID().toString().replace("-", "").substring(0, 12); prefs.edit().putString("lan_key", key).commit(); }
-                lan = new LanPeerManager(context, port, key); lan.start();
-                new FileTransferServer(context, port + 2, key).start();
-                Log.i(TAG, "HTTP server on fixed port " + port);
-                while (running && myGeneration == serverGeneration && !localSocket.isClosed()) {
+                ServerSocket socket = new ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"));
+                synchronized (NotifyServer.this) { serverSocket = socket; }
+                Log.i(TAG, "Stable HTTP notification server on 0.0.0.0:" + port);
+                while (running && !socket.isClosed()) {
                     try {
-                        Socket client = localSocket.accept();
-                        client.setSoTimeout(10000);
+                        Socket client = socket.accept();
+                        client.setSoTimeout(8000);
                         new Thread(() -> handleClient(client), "hub-http-client").start();
-                    } catch (IOException e) { if (running && myGeneration == serverGeneration) Log.e(TAG, "Accept: " + e.getMessage()); }
+                    } catch (IOException e) {
+                        if (running) Log.w(TAG, "Accept: " + e.getMessage());
+                    }
                 }
             } catch (IOException e) {
-                Log.e(TAG, "Cannot bind fixed port " + fixedPort + ": " + e.getMessage());
+                Log.e(TAG, "Cannot bind fixed notification port " + port + ": " + e.getMessage());
             } finally {
-                try { if (localSocket != null) localSocket.close(); } catch (IOException e) { }
-                synchronized (NotifyServer.this) { if (serverSocket == localSocket) serverSocket = null; }
+                synchronized (NotifyServer.this) { serverSocket = null; running = false; }
             }
-        });
+        }, "hub-http-server");
         serverThread.start();
-        // 前台Service已负责保活；不在运行中重建监听线程，避免端口交接竞态。
     }
 
     private synchronized void startWatchdog() {
