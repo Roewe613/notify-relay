@@ -459,7 +459,7 @@ public class NotifyServer {
                 label = title.contains("📥") ? "通知枢纽 // FILE" : "通知枢纽 // FORECAST";
                 bg = R.drawable.notification_hub_forecast;
             }
-            compact.setInt(R.id.hub_root, "setBackgroundResource", bg);
+            // Root保持透明，直接融入SystemUI全局浅薰衣草卡片，不再产生第二层颜色块。
             if (forecast && content.startsWith("重点：")) {
                 // 分档长号码：去掉装饰栏，把重点码放标题，正文三行专供完整号码。
                 int cut = content.indexOf('\n');
