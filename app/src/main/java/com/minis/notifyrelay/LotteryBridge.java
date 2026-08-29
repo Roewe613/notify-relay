@@ -87,11 +87,11 @@ public class LotteryBridge {
     private synchronized void finishSuccess() {
         syncing = false; currentCode = "";
         prefs.edit().putLong("lottery_last_sync", System.currentTimeMillis()).putString("lottery_last_error", "").apply();
-        scheduleNext(intervalMs());
+        scheduleNext(0);
     }
     private synchronized void fail(String error) {
         if (!syncing) return; syncing = false; lastError = error;
-        prefs.edit().putString("lottery_last_error", error).apply(); scheduleNext(intervalMs());
+        prefs.edit().putString("lottery_last_error", error).apply(); scheduleNext(0);
     }
     /** 按开奖时刻和营业时间精准触发，默认开奖后30秒抓取。 */
     private void scheduleInitial() { scheduleNext(0); }
