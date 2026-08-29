@@ -62,6 +62,7 @@ public class NotifyServer {
     }
 
     public int getPort() { return port; }
+    public boolean isRunning() { return running; }
     public synchronized boolean isLanEnabled() { return lan != null; }
     public synchronized boolean isFileEnabled() { return fileTransfer != null; }
     public synchronized void setLanEnabled(boolean enabled) {

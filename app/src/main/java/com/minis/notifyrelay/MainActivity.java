@@ -53,8 +53,8 @@ public class MainActivity extends Activity {
                 webView.postDelayed(() -> applySavedLocalBackground(), 800);
             }
         });
-        webView.loadUrl("http://127.0.0.1:" + server.getPort() + "/");
         setContentView(webView);
+        webView.postDelayed(() -> loadHubWhenReady(0), 500);
     }
 
     private class BackgroundBridge {
@@ -115,6 +115,16 @@ public class MainActivity extends Activity {
             // 通过本机 HTTP /background 提供图片，避免 WebView 拦截 file:// 跨来源背景。
             webView.postDelayed(() -> applySavedLocalBackground(), 150);
         } catch (Exception e) { Log.e(TAG, "background", e); }
+    }
+
+    private void loadHubWhenReady(int attempt) {
+        if (server != null && server.isRunning()) {
+            webView.loadUrl("http://127.0.0.1:" + server.getPort() + "/");
+        } else if (attempt < 20) {
+            webView.postDelayed(() -> loadHubWhenReady(attempt + 1), 500);
+        } else {
+            webView.loadUrl("http://127.0.0.1:" + (server == null ? 9531 : server.getPort()) + "/");
+        }
     }
 
     private void applySavedLocalBackground() {

@@ -19,6 +19,8 @@ import java.net.Socket;
 import java.net.URI;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 import java.util.concurrent.Executors;
 
@@ -80,8 +82,21 @@ public class LotteryBridge {
                 String decoded = new JSONArray("[" + raw + "]").getString(0); JSONArray rows = new JSONArray(decoded);
                 if (rows.length() < 1) throw new Exception("未解析到开奖记录");
                 prefs.edit().putString("lottery_" + code, rows.toString()).putLong("lottery_" + code + "_time", System.currentTimeMillis()).apply();
+                postToDaidai(code, rows);
                 if (syncBoth && "TJSSC".equals(code)) main.post(() -> load("XJSSC")); else finishSuccess();
             } catch (Exception e) { fail(code + ": " + e.getMessage()); }
+        });
+    }
+    private void postToDaidai(String code, JSONArray rows) {
+        bg.execute(() -> {
+            try {
+                JSONObject d = new JSONObject().put("lotteries", new JSONObject().put(code, rows));
+                HttpURLConnection c = (HttpURLConnection)new URL("http://127.0.0.1:9535/lottery/sync").openConnection();
+                c.setConnectTimeout(2500); c.setReadTimeout(5000); c.setRequestMethod("POST"); c.setDoOutput(true);
+                c.setRequestProperty("Content-Type", "application/json"); c.setRequestProperty("X-Lottery-Sync-Token", "SYNC_9535_NOTIFY_RELAY_20260829");
+                OutputStream o=c.getOutputStream(); o.write(d.toString().getBytes(StandardCharsets.UTF_8)); o.close(); int codeHttp=c.getResponseCode(); c.disconnect();
+                prefs.edit().putString("lottery_panel_sync_"+code, codeHttp==200?"ok":"http_"+codeHttp).apply();
+            } catch(Exception e) { prefs.edit().putString("lottery_panel_sync_"+code, "failed").apply(); }
         });
     }
     private synchronized void finishSuccess() {
