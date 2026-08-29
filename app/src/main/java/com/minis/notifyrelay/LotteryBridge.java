@@ -17,6 +17,8 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URI;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.concurrent.Executors;
 
 /** Android WebView只读公开开奖记录；不登录、不下注、不复用试玩会话。 */
@@ -41,7 +43,7 @@ public class LotteryBridge {
 
     private LotteryBridge(Activity a) {
         activity = a; prefs = a.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
-        main.post(() -> { ensureWebView(); applyProxy(); scheduleNext(3000); });
+        main.post(() -> { ensureWebView(); LotteryProxyServer.get(activity).start(); applyProxy(); scheduleNext(3000); });
     }
     private void ensureWebView() {
         if (web != null) return;
@@ -94,7 +96,11 @@ public class LotteryBridge {
     public String statusJson() {
         try { return new JSONObject().put("ok", true).put("syncing", syncing).put("current", currentCode)
             .put("interval_min", prefs.getInt("lottery_interval_min", 20)).put("count", count())
-            .put("tj_url", urlFor("TJSSC")).put("xj_url", urlFor("XJSSC")).put("proxy", prefs.getString("lottery_proxy", ""))
+            .put("tj_url", urlFor("TJSSC")).put("xj_url", urlFor("XJSSC"))
+            .put("proxy", "127.0.0.1:9533").put("proxy_ip", prefs.getString("lottery_proxy_ip", ""))
+            .put("proxy_port", prefs.getInt("lottery_proxy_port", 0)).put("proxy_host", prefs.getString("lottery_proxy_host", ""))
+            .put("proxy_auth", prefs.getString("lottery_proxy_auth", ""))
+            .put("proxy_running", LotteryProxyServer.get(activity).isRunning())
             .put("last_sync", prefs.getLong("lottery_last_sync", 0)).put("last_error", prefs.getString("lottery_last_error", lastError))
             .put("tj_time", prefs.getLong("lottery_TJSSC_time", 0)).put("xj_time", prefs.getLong("lottery_XJSSC_time", 0)).toString();
         } catch (Exception e) { return "{\"ok\":false}"; }
@@ -104,20 +110,25 @@ public class LotteryBridge {
             int mins = j.optInt("interval_min", prefs.getInt("lottery_interval_min", 20));
             int n = j.optInt("count", count());
             String tj = j.optString("tj_url", urlFor("TJSSC")).trim(), xj = j.optString("xj_url", urlFor("XJSSC")).trim();
-            String proxy = j.optString("proxy", prefs.getString("lottery_proxy", "")).trim();
-            if (mins < 5 || mins > 60 || n < 1 || n > 20 || !validUrl(tj) || !validUrl(xj) || proxy.length() > 200) return false;
+            String ip = j.optString("proxy_ip", prefs.getString("lottery_proxy_ip", "")).trim();
+            int proxyPort = j.optInt("proxy_port", prefs.getInt("lottery_proxy_port", 0));
+            String proxyHost = j.optString("proxy_host", prefs.getString("lottery_proxy_host", "")).trim();
+            String auth = j.optString("proxy_auth", prefs.getString("lottery_proxy_auth", ""));
+            if (mins < 5 || mins > 60 || n < 1 || n > 20 || !validUrl(tj) || !validUrl(xj) || ip.length() > 120 || proxyPort < 0 || proxyPort > 65535 || proxyHost.length() > 200 || auth.length() > 500) return false;
             prefs.edit().putInt("lottery_interval_min", mins).putInt("lottery_count", n).putString("lottery_url_TJSSC", tj)
-                .putString("lottery_url_XJSSC", xj).putString("lottery_proxy", proxy).apply();
-            main.post(this::applyProxy); scheduleNext(mins * 60000L); return true;
+                .putString("lottery_url_XJSSC", xj).putString("lottery_proxy_ip", ip).putInt("lottery_proxy_port", proxyPort)
+                .putString("lottery_proxy_host", proxyHost).putString("lottery_proxy_auth", auth).apply();
+            main.post(() -> { applyProxy(); scheduleNext(mins * 60000L); }); return true;
         } catch (Exception e) { return false; }
     }
     private boolean validUrl(String s) { return s.startsWith("https://") || s.startsWith("http://"); }
     private void applyProxy() {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) return;
-        String p = prefs.getString("lottery_proxy", "").trim();
-        if (p.isEmpty()) ProxyController.getInstance().clearProxyOverride(Runnable::run, () -> {});
-        else try { ProxyConfig cfg = new ProxyConfig.Builder().addProxyRule(p).addDirect().build(); ProxyController.getInstance().setProxyOverride(cfg, Runnable::run, () -> {}); }
-        catch (Exception e) { prefs.edit().putString("lottery_last_error", "代理配置错误: " + e.getMessage()).apply(); }
+        int remotePort = prefs.getInt("lottery_proxy_port", 0);
+        String ip = prefs.getString("lottery_proxy_ip", "").trim();
+        if (ip.isEmpty() || remotePort <= 0) ProxyController.getInstance().clearProxyOverride(Runnable::run, () -> {});
+        else try { ProxyConfig cfg = new ProxyConfig.Builder().addProxyRule("http://127.0.0.1:9533").build(); ProxyController.getInstance().setProxyOverride(cfg, Runnable::run, () -> {}); }
+        catch (Exception e) { prefs.edit().putString("lottery_last_error", "本地代理配置错误: " + e.getMessage()).apply(); }
     }
 
     /** DNS和IP仅诊断。HTTPS不能简单替换成IP，否则证书/SNI可能失败。 */
@@ -125,8 +136,11 @@ public class LotteryBridge {
         try {
             URI u = new URI(urlFor(code)); String host = u.getHost(); JSONArray ips = new JSONArray(); boolean tcp = false;
             for (InetAddress a : InetAddress.getAllByName(host)) { ips.put(a.getHostAddress()); if (!tcp) try (Socket s = new Socket()) { s.connect(new InetSocketAddress(a, u.getPort() > 0 ? u.getPort() : 443), 3000); tcp = true; } catch (Exception ignored) {} }
+            boolean https = false; int httpCode = 0; String httpsError = "";
+            try { HttpURLConnection hc = (HttpURLConnection)new URL(urlFor(code)).openConnection(); hc.setConnectTimeout(6000); hc.setReadTimeout(6000); hc.setInstanceFollowRedirects(true); httpCode = hc.getResponseCode(); https = httpCode > 0 && httpCode < 500; hc.disconnect(); } catch (Exception e) { httpsError = e.getMessage() == null ? "连接失败" : e.getMessage(); }
             return new JSONObject().put("ok", true).put("code", code).put("host", host).put("ips", ips).put("tcp443", tcp)
-                .put("note", "HTTPS IP直连需保留域名SNI和证书校验，当前仅诊断").toString();
+                .put("https", https).put("https_code", httpCode).put("https_error", httpsError)
+                .put("note", "HTTPS测试保留域名SNI和证书校验；IP仅用于DNS/TCP诊断").toString();
         } catch (Exception e) { try { return new JSONObject().put("ok", false).put("error", e.getMessage()).toString(); } catch(Exception x){return "{\"ok\":false}";} }
     }
 }
