@@ -43,7 +43,7 @@ public class LotteryBridge {
 
     private LotteryBridge(Activity a) {
         activity = a; prefs = a.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
-        main.post(() -> { ensureWebView(); LotteryProxyServer.get(activity).start(); applyProxy(); scheduleNext(3000); });
+        main.post(() -> { ensureWebView(); LotteryProxyServer.get(activity).start(); applyProxy(); scheduleInitial(); });
     }
     private void ensureWebView() {
         if (web != null) return;
@@ -88,8 +88,20 @@ public class LotteryBridge {
         if (!syncing) return; syncing = false; lastError = error;
         prefs.edit().putString("lottery_last_error", error).apply(); scheduleNext(intervalMs());
     }
-    private long intervalMs() { return prefs.getInt("lottery_interval_min", 20) * 60000L; }
-    private void scheduleNext(long delay) { main.removeCallbacks(autoSync); main.postDelayed(autoSync, delay); }
+    /** 按开奖时刻精准触发：天津 xx:03/23/43:40，新疆 xx:00/20/40:07；默认开奖后30秒抓取。 */
+    private void scheduleInitial() { main.removeCallbacks(autoSync); main.postDelayed(autoSync, 3000L); }
+    private long preciseNextDelay() {
+        Calendar now = Calendar.getInstance(); long nowMs = now.getTimeInMillis(); long best = Long.MAX_VALUE;
+        for (int h = 0; h <= 2; h++) for (int m = 0; m < 60; m++) {
+            Calendar tj = (Calendar) now.clone(); tj.add(Calendar.HOUR_OF_DAY, h); tj.set(Calendar.MINUTE, m); tj.set(Calendar.SECOND, 40); tj.set(Calendar.MILLISECOND, 0);
+            if (m % 20 == 3) best = Math.min(best, tj.getTimeInMillis() + triggerDelayMs() - nowMs);
+            Calendar xj = (Calendar) now.clone(); xj.add(Calendar.HOUR_OF_DAY, h); xj.set(Calendar.MINUTE, m); xj.set(Calendar.SECOND, 7); xj.set(Calendar.MILLISECOND, 0);
+            if (m % 20 == 0) best = Math.min(best, xj.getTimeInMillis() + triggerDelayMs() - nowMs);
+        }
+        return Math.max(1000L, best == Long.MAX_VALUE ? 300000L : best);
+    }
+    private long triggerDelayMs() { return Math.max(30000L, Math.min(60000L, prefs.getInt("lottery_trigger_delay_sec", 30) * 1000L)); }
+    private void scheduleNext(long ignored) { main.removeCallbacks(autoSync); prefs.edit().putLong("lottery_next_sync", System.currentTimeMillis() + preciseNextDelay()).apply(); main.postDelayed(autoSync, preciseNextDelay()); }
     private final Runnable autoSync = this::requestSync;
 
     public String getRows(String code) { return prefs.getString("lottery_" + code, "[]"); }
@@ -101,6 +113,8 @@ public class LotteryBridge {
             .put("proxy_port", prefs.getInt("lottery_proxy_port", 0)).put("proxy_host", prefs.getString("lottery_proxy_host", ""))
             .put("proxy_auth", prefs.getString("lottery_proxy_auth", ""))
             .put("proxy_running", LotteryProxyServer.get(activity).isRunning())
+            .put("trigger_delay_sec", prefs.getInt("lottery_trigger_delay_sec", 30))
+            .put("next_sync", prefs.getLong("lottery_next_sync", 0))
             .put("last_sync", prefs.getLong("lottery_last_sync", 0)).put("last_error", prefs.getString("lottery_last_error", lastError))
             .put("tj_time", prefs.getLong("lottery_TJSSC_time", 0)).put("xj_time", prefs.getLong("lottery_XJSSC_time", 0)).toString();
         } catch (Exception e) { return "{\"ok\":false}"; }
@@ -109,13 +123,14 @@ public class LotteryBridge {
         try {
             int mins = j.optInt("interval_min", prefs.getInt("lottery_interval_min", 20));
             int n = j.optInt("count", count());
+            int delaySec = j.optInt("trigger_delay_sec", prefs.getInt("lottery_trigger_delay_sec", 30));
             String tj = j.optString("tj_url", urlFor("TJSSC")).trim(), xj = j.optString("xj_url", urlFor("XJSSC")).trim();
             String ip = j.optString("proxy_ip", prefs.getString("lottery_proxy_ip", "")).trim();
             int proxyPort = j.optInt("proxy_port", prefs.getInt("lottery_proxy_port", 0));
             String proxyHost = j.optString("proxy_host", prefs.getString("lottery_proxy_host", "")).trim();
             String auth = j.optString("proxy_auth", prefs.getString("lottery_proxy_auth", ""));
-            if (mins < 5 || mins > 60 || n < 1 || n > 20 || !validUrl(tj) || !validUrl(xj) || ip.length() > 120 || proxyPort < 0 || proxyPort > 65535 || proxyHost.length() > 200 || auth.length() > 500) return false;
-            prefs.edit().putInt("lottery_interval_min", mins).putInt("lottery_count", n).putString("lottery_url_TJSSC", tj)
+            if (mins < 1 || mins > 60 || n < 1 || n > 20 || delaySec < 30 || delaySec > 60 || !validUrl(tj) || !validUrl(xj) || ip.length() > 120 || proxyPort < 0 || proxyPort > 65535 || proxyHost.length() > 200 || auth.length() > 500) return false;
+            prefs.edit().putInt("lottery_interval_min", mins).putInt("lottery_count", n).putInt("lottery_trigger_delay_sec", delaySec).putString("lottery_url_TJSSC", tj)
                 .putString("lottery_url_XJSSC", xj).putString("lottery_proxy_ip", ip).putInt("lottery_proxy_port", proxyPort)
                 .putString("lottery_proxy_host", proxyHost).putString("lottery_proxy_auth", auth).apply();
             main.post(() -> { applyProxy(); scheduleNext(mins * 60000L); }); return true;
