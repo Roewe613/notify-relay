@@ -142,7 +142,7 @@ public class LotteryBridge {
             .put("tj_url", urlFor("TJSSC")).put("xj_url", urlFor("XJSSC"))
             .put("proxy", "127.0.0.1:9533").put("proxy_ip", prefs.getString("lottery_proxy_ip", ""))
             .put("proxy_port", prefs.getInt("lottery_proxy_port", 0)).put("proxy_host", prefs.getString("lottery_proxy_host", ""))
-            .put("proxy_auth", prefs.getString("lottery_proxy_auth", ""))
+            .put("proxy_auth_configured", !prefs.getString("lottery_proxy_auth", "").isEmpty())
             .put("proxy_running", LotteryProxyServer.get(activity).isRunning())
             .put("trigger_delay_sec", prefs.getInt("lottery_trigger_delay_sec", 30))
             .put("next_sync", prefs.getLong("lottery_next_sync", 0))
