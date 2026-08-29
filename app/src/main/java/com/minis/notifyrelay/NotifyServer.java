@@ -247,7 +247,23 @@ public class NotifyServer {
                 return;
             }
 
-            if ("GET".equals(method) && path.equals("/modules")) {
+            if ("GET".equals(method) && path.equals("/lottery/status")) {
+                LotteryBridge bridge = LotteryBridge.get();
+                response = bridge == null ? "{\"ok\":false,\"error\":\"activity not ready\"}" : bridge.statusJson();
+            } else if ("GET".equals(method) && (path.equals("/lottery/TJSSC") || path.equals("/lottery/XJSSC"))) {
+                LotteryBridge bridge = LotteryBridge.get();
+                String code = path.endsWith("TJSSC") ? "TJSSC" : "XJSSC";
+                response = "{\"ok\":" + (bridge != null) + ",\"code\":\"" + code + "\",\"rows\":" + (bridge == null ? "[]" : bridge.getRows(code)) + "}";
+            } else if ("POST".equals(method) && path.equals("/lottery/sync")) {
+                LotteryBridge bridge = LotteryBridge.get();
+                response = "{\"ok\":" + (bridge != null && bridge.requestSync()) + ",\"started\":" + (bridge != null) + "}";
+            } else if ("POST".equals(method) && path.equals("/lottery/config")) {
+                try {
+                    LotteryBridge bridge = LotteryBridge.get(); int mins = new JSONObject(body).getInt("interval_min");
+                    boolean ok = bridge != null && bridge.setInterval(mins);
+                    response = "{\"ok\":" + ok + ",\"interval_min\":" + mins + "}";
+                } catch (Exception e) { response = "{\"ok\":false,\"error\":\"interval 5-60 required\"}"; }
+            } else if ("GET".equals(method) && path.equals("/modules")) {
                 response = "{\"lan\":" + isLanEnabled() + ",\"file\":" + isFileEnabled() + ",\"file_port\":" + (port + 2) + "}";
             } else if ("POST".equals(method) && path.equals("/modules")) {
                 try {

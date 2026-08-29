@@ -34,6 +34,8 @@ public class MainActivity extends Activity {
         requestNotificationPermission();
         // 仅获取唯一共享server。前台Service负责保活，Activity不再反复重建监听线程。
         server = NotifyServer.getShared(this);
+        // Android WebView开奖桥接：异步刷新公开天津/新疆开奖记录，不阻塞9531通知。
+        LotteryBridge.create(this);
         try {
             Intent serviceIntent = new Intent(this, NotifyRelayService.class);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent);
