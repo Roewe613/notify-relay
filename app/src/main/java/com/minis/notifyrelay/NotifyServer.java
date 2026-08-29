@@ -259,10 +259,15 @@ public class NotifyServer {
                 response = "{\"ok\":" + (bridge != null && bridge.requestSync()) + ",\"started\":" + (bridge != null) + "}";
             } else if ("POST".equals(method) && path.equals("/lottery/config")) {
                 try {
-                    LotteryBridge bridge = LotteryBridge.get(); int mins = new JSONObject(body).getInt("interval_min");
-                    boolean ok = bridge != null && bridge.setInterval(mins);
-                    response = "{\"ok\":" + ok + ",\"interval_min\":" + mins + "}";
-                } catch (Exception e) { response = "{\"ok\":false,\"error\":\"interval 5-60 required\"}"; }
+                    LotteryBridge bridge = LotteryBridge.get(); JSONObject json = new JSONObject(body);
+                    boolean ok = bridge != null && bridge.setConfig(json);
+                    response = "{\"ok\":" + ok + ",\"status\":" + (bridge == null ? "{}" : bridge.statusJson()) + "}";
+                } catch (Exception e) { response = "{\"ok\":false,\"error\":\"invalid lottery config\"}"; }
+            } else if ("GET".equals(method) && (path.equals("/lottery/diag/TJSSC") || path.equals("/lottery/diag/XJSSC"))) {
+                LotteryBridge bridge = LotteryBridge.get(); String code = path.endsWith("TJSSC") ? "TJSSC" : "XJSSC";
+                response = bridge == null ? "{\"ok\":false,\"error\":\"activity not ready\"}" : bridge.diagnosticsJson(code);
+            } else if ("GET".equals(method) && path.equals("/lottery")) {
+                response = LOTTERY_PAGE; contentType = "text/html; charset=utf-8";
             } else if ("GET".equals(method) && path.equals("/modules")) {
                 response = "{\"lan\":" + isLanEnabled() + ",\"file\":" + isFileEnabled() + ",\"file_port\":" + (port + 2) + "}";
             } else if ("POST".equals(method) && path.equals("/modules")) {
@@ -565,6 +570,14 @@ public class NotifyServer {
     }
 
     private String esc(String s) { return s.replace("\\","\\\\").replace("\"","\\\"").replace("\n","\\n"); }
+
+    private static final String LOTTERY_PAGE = "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><meta charset=utf-8><title>天津·新疆开奖桥接</title>"
+        + "<style>body{font-family:sans-serif;background:#08101f;color:#e8f1ff;margin:0;padding:16px}.card{background:#121d31;border:1px solid #29405f;border-radius:16px;padding:14px;margin:12px 0}input{box-sizing:border-box;width:100%;padding:10px;margin:6px 0;border-radius:9px;border:1px solid #456;background:#091321;color:#fff}button{padding:10px 13px;margin:5px;border:0;border-radius:9px;background:#168cff;color:#fff}.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.muted{color:#9eb0c8;font-size:12px}pre{white-space:pre-wrap;word-break:break-all}</style>"
+        + "<h2>🎲 天津·新疆开奖桥接</h2><div id=state class=card>加载中…</div>"
+        + "<div class=card><h3>天津时时彩开奖</h3><input id=tj><button onclick=diag('TJSSC')>DNS/IP诊断</button><pre id=tjd></pre><pre id=tjr></pre></div>"
+        + "<div class=card><h3>新疆时时彩开奖</h3><input id=xj><button onclick=diag('XJSSC')>DNS/IP诊断</button><pre id=xjd></pre><pre id=xjr></pre></div>"
+        + "<div class=card><h3>自定义刷新</h3><div class=row><label>间隔分钟<input id=min type=number min=5 max=60></label><label>获取期数<input id=count type=number min=1 max=20></label></div><label>代理（留空直连）<input id=proxy placeholder='http://host:port 或 socks://host:port'></label><div class=muted>HTTPS IP直连需要保留域名SNI/证书，当前提供DNS解析和TCP诊断，不做不安全证书绕过。</div><button onclick=save()>保存设置</button><button onclick=sync()>立即刷新</button><button onclick=load()>重新载入</button></div>"
+        + "<script>async function j(u,o){return await (await fetch(u,o)).json()}function fmt(r){return (r.rows||[]).map(x=>x.issue+'  '+x.openNum.join(' ')+'  '+x.openDateTime).join('\\n')||'暂无缓存'}async function load(){let s=await j('/lottery/status');state.textContent='状态 '+(s.syncing?'同步中':'空闲')+'｜最近 '+(s.last_sync?new Date(s.last_sync).toLocaleString():'无')+'｜错误 '+(s.last_error||'无');tj.value=s.tj_url;xj.value=s.xj_url;min.value=s.interval_min;count.value=s.count;proxy.value=s.proxy||'';tjr.textContent=fmt(await j('/lottery/TJSSC'));xjr.textContent=fmt(await j('/lottery/XJSSC'))}async function save(){let d={tj_url:tj.value,xj_url:xj.value,interval_min:+min.value,count:+count.value,proxy:proxy.value};alert(JSON.stringify(await j('/lottery/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})));load()}async function sync(){await j('/lottery/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});setTimeout(load,7000)}async function diag(c){document.getElementById(c==='TJSSC'?'tjd':'xjd').textContent=JSON.stringify(await j('/lottery/diag/'+c),null,2)}load()</script>";
 
     private static final String HTML_PAGE =
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
