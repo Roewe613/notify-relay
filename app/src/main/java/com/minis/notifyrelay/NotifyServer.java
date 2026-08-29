@@ -73,7 +73,7 @@ public class NotifyServer {
         } else if (!enabled && lan != null) { lan.stop(); lan = null; if (fileTransfer != null) { fileTransfer.stop(); fileTransfer = null; } }
     }
     public synchronized void setFileEnabled(boolean enabled) {
-        if (enabled) { if (lan == null) setLanEnabled(true); if (fileTransfer == null) { fileTransfer = new FileTransferServer(context, port + 2, ""); fileTransfer.start(); } }
+        if (enabled) { if (lan == null) setLanEnabled(true); if (fileTransfer == null) { fileTransfer = new FileTransferServer(context, port + 3, ""); fileTransfer.start(); } }
         else if (fileTransfer != null) { fileTransfer.stop(); fileTransfer = null; }
     }
     public int broadcastFile(File file, String mime) { return (lan == null || fileTransfer == null) ? 0 : lan.broadcastFile(file, mime); }
@@ -269,7 +269,7 @@ public class NotifyServer {
             } else if ("GET".equals(method) && path.equals("/lottery")) {
                 response = LOTTERY_PAGE; contentType = "text/html; charset=utf-8";
             } else if ("GET".equals(method) && path.equals("/modules")) {
-                response = "{\"lan\":" + isLanEnabled() + ",\"file\":" + isFileEnabled() + ",\"file_port\":" + (port + 2) + "}";
+                response = "{\"lan\":" + isLanEnabled() + ",\"file\":" + isFileEnabled() + ",\"file_port\":" + (port + 3) + "}";
             } else if ("POST".equals(method) && path.equals("/modules")) {
                 try {
                     JSONObject json = new JSONObject(body);
@@ -612,9 +612,10 @@ public class NotifyServer {
         + "<button class=btn onclick=sendOne()>发送</button>"
         + "<button class=btn onclick=tbatch()>批量测试3条</button>"
         + "<div id=r style=margin-top:8px;font-size:13px></div></div>"
-        + "<div class=card><h1>🧩 独立扩展模块</h1><div class=ip>9531 核心通知始终独立运行；下列模块默认关闭。</div>"
+        + "<div class=card><h1>🧩 独立扩展模块</h1><div class=ip>9531 核心通知始终独立运行；9533 专用于开奖代理。</div>"
+        + "<div id=lotteryProxy class=ip>开奖代理 9533：检查中…</div><button class=btn onclick=location.href='/lottery'>打开开奖代理配置</button>"
         + "<button class=btn id=lanToggle onclick=toggleMod('lan')>局域网发现：关闭</button><button class=btn id=fileToggle onclick=toggleMod('file')>文件传输：关闭</button>"
-        + "<div id=modules class=ip>UDP 9532｜文件 9533｜按需启用</div></div>"
+        + "<div id=modules class=ip>UDP 9532｜文件 9534｜按需启用</div></div>
         + "<div class=card><h1>📱 局域网设备</h1>"
         + "<input id=lanKey placeholder=配对密钥（所有手机填相同内容）>"
         + "<button class=btn onclick=saveKey()>保存并发现</button><button class=btn onclick=sendPeers()>群发文字</button>"
@@ -632,7 +633,7 @@ public class NotifyServer {
         + "function cp(x){try{if(window.NativeHub&&NativeHub.copyText){NativeHub.copyText(x);}else{const a=document.createElement('textarea');a.value=x;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();}document.getElementById('r').textContent='✅已复制完整内容';}catch(e){document.getElementById('r').textContent='❌复制失败';}}"
         + "async function delRecent(i){await fetch('/recent/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:i})});lr();l();}let clearArmed=0;async function clearRecent(){const b=event.currentTarget;if(!clearArmed){clearArmed=Date.now();b.textContent='再次点击确认清空';setTimeout(()=>{if(clearArmed){clearArmed=0;b.textContent='清空历史';}},4000);return;}clearArmed=0;b.textContent='清空中…';try{const r=await fetch('/recent/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const d=await r.json();b.textContent=d.ok?'✅已清空':'❌清空失败';document.getElementById('r').textContent=d.ok?'✅历史已清空':'❌清空失败';await lr();await l();setTimeout(()=>b.textContent='清空历史',1500);}catch(e){b.textContent='❌清空失败';}}"
         + "async function lr(){try{const r=await fetch('/recent');const d=await r.json();const box=document.getElementById('list');box.innerHTML='';d.notifications.slice(0,200).forEach((n,i)=>{const row=document.createElement('div');row.className='logrow';const el=document.createElement('div');el.className='ni';el.textContent=n;el.onclick=()=>cp(n);const b=document.createElement('button');b.className='del';b.textContent='×';b.onclick=()=>delRecent(i);row.appendChild(el);row.appendChild(b);box.appendChild(row);});}catch(e){}}"
-        + "async function mods(){try{const d=await (await fetch('/modules')).json();document.getElementById('lanToggle').textContent='局域网发现：'+(d.lan?'开启':'关闭');document.getElementById('fileToggle').textContent='文件传输：'+(d.file?'开启':'关闭');document.getElementById('modules').textContent='UDP 9532 '+(d.lan?'运行中':'已关闭')+'｜文件 '+d.file_port+' '+(d.file?'运行中':'已关闭')+'｜9531核心不受影响';}catch(e){}}"
+        + "async function mods(){try{const d=await (await fetch('/modules')).json();try{const s=await (await fetch('/lottery/status',{cache:'no-store'})).json();document.getElementById('lotteryProxy').innerHTML='开奖代理 9533：'+(s.proxy_running?'<span class=ok>运行中</span>':'<span class=wait>未运行</span>')+'｜同步：'+(s.syncing?'同步中':'空闲');}catch(e){}document.getElementById('lanToggle').textContent='局域网发现：'+(d.lan?'开启':'关闭');document.getElementById('fileToggle').textContent='文件传输：'+(d.file?'开启':'关闭');document.getElementById('modules').textContent='UDP 9532 '+(d.lan?'运行中':'已关闭')+'｜文件 '+d.file_port+' '+(d.file?'运行中':'已关闭')+'｜9531核心不受影响';}catch(e){}}"
         + "async function toggleMod(n){const d=await (await fetch('/modules')).json();const on=n==='lan'?!d.lan:!d.file;await fetch('/modules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,enabled:on})});mods();peers();}"
         + "async function peers(){try{const r=await fetch('/peers');const d=await r.json();document.getElementById('peers').textContent=d.peers.length?'在线 '+d.peers.length+' 台：'+d.peers.map(x=>x.name+' ('+x.ip+':'+x.port+')').join('、'):'暂未发现配对手机';}catch(e){}}"
         + "function fileResult(x){document.getElementById('fileResult').textContent=x;}"
