@@ -88,15 +88,22 @@ public class LotteryBridge {
         if (!syncing) return; syncing = false; lastError = error;
         prefs.edit().putString("lottery_last_error", error).apply(); scheduleNext(intervalMs());
     }
-    /** 按开奖时刻精准触发：天津 xx:03/23/43:40，新疆 xx:00/20/40:07；默认开奖后30秒抓取。 */
+    /** 按开奖时刻和营业时间精准触发，默认开奖后30秒抓取。 */
     private void scheduleInitial() { main.removeCallbacks(autoSync); main.postDelayed(autoSync, 3000L); }
+    private boolean inWindow(String code, Calendar c) {
+        int h = c.get(Calendar.HOUR_OF_DAY), m = c.get(Calendar.MINUTE);
+        int minute = h * 60 + m;
+        if ("TJSSC".equals(code)) return minute >= 9 * 60 && minute < 23 * 60;
+        // 新疆营业时间跨午夜：10:00至次日02:00
+        return minute >= 10 * 60 || minute < 2 * 60;
+    }
     private long preciseNextDelay() {
         Calendar now = Calendar.getInstance(); long nowMs = now.getTimeInMillis(); long best = Long.MAX_VALUE;
-        for (int h = 0; h <= 2; h++) for (int m = 0; m < 60; m++) {
+        for (int h = 0; h <= 48; h++) for (int m = 0; m < 60; m++) {
             Calendar tj = (Calendar) now.clone(); tj.add(Calendar.HOUR_OF_DAY, h); tj.set(Calendar.MINUTE, m); tj.set(Calendar.SECOND, 40); tj.set(Calendar.MILLISECOND, 0);
-            if (m % 20 == 3) best = Math.min(best, tj.getTimeInMillis() + triggerDelayMs() - nowMs);
+            if (m % 20 == 3 && inWindow("TJSSC", tj)) best = Math.min(best, tj.getTimeInMillis() + triggerDelayMs() - nowMs);
             Calendar xj = (Calendar) now.clone(); xj.add(Calendar.HOUR_OF_DAY, h); xj.set(Calendar.MINUTE, m); xj.set(Calendar.SECOND, 7); xj.set(Calendar.MILLISECOND, 0);
-            if (m % 20 == 0) best = Math.min(best, xj.getTimeInMillis() + triggerDelayMs() - nowMs);
+            if (m % 20 == 0 && inWindow("XJSSC", xj)) best = Math.min(best, xj.getTimeInMillis() + triggerDelayMs() - nowMs);
         }
         return Math.max(1000L, best == Long.MAX_VALUE ? 300000L : best);
     }
