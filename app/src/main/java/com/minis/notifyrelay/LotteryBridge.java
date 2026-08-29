@@ -93,9 +93,12 @@ public class LotteryBridge {
     private boolean inWindow(String code, Calendar c) {
         int h = c.get(Calendar.HOUR_OF_DAY), m = c.get(Calendar.MINUTE);
         int minute = h * 60 + m;
-        if ("TJSSC".equals(code)) return minute >= 9 * 60 && minute < 23 * 60;
-        // 新疆营业时间跨午夜：10:00至次日02:00
-        return minute >= 10 * 60 || minute < 2 * 60;
+        if ("TJSSC".equals(code)) {
+            // 天津：09:03:40至23:03:40，每20分钟一期
+            return minute >= 9 * 60 + 3 && minute <= 23 * 60 + 3;
+        }
+        // 新疆：10:00:07至次日02:00:07，每20分钟一期；跨午夜
+        return minute >= 10 * 60 || minute <= 2 * 60;
     }
     private long preciseNextDelay() {
         Calendar now = Calendar.getInstance(); long nowMs = now.getTimeInMillis(); long best = Long.MAX_VALUE;
