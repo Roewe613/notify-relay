@@ -34,6 +34,8 @@ public class LotteryBridge {
     private volatile boolean syncing;
     private volatile String currentCode = "";
     private volatile String lastError = "";
+    private volatile String scheduledCode = "";
+    private volatile boolean syncBoth = false;
 
     public static synchronized LotteryBridge create(Activity a) {
         if (shared == null) shared = new LotteryBridge(a);
@@ -59,10 +61,12 @@ public class LotteryBridge {
     private String urlFor(String code) { return prefs.getString("lottery_url_" + code, "TJSSC".equals(code) ? DEFAULT_TJ : DEFAULT_XJ); }
     private int count() { return Math.max(1, Math.min(20, prefs.getInt("lottery_count", 5))); }
 
-    public synchronized boolean requestSync() {
+    public synchronized boolean requestSync() { return requestSync("TJSSC", true); }
+    private synchronized boolean requestSync(String code, boolean both) {
         if (syncing) return false;
-        syncing = true; lastError = ""; main.post(() -> load("TJSSC")); return true;
+        syncing = true; syncBoth = both; lastError = ""; main.post(() -> load(code)); return true;
     }
+    private synchronized boolean requestScheduled(String code) { scheduledCode = code; return requestSync(code, false); }
     private void load(String code) {
         ensureWebView(); currentCode = code; web.stopLoading(); web.loadUrl(urlFor(code));
         main.postDelayed(() -> { if (syncing && code.equals(currentCode)) fail(code + ": 页面加载超时"); }, 18000);
@@ -75,7 +79,7 @@ public class LotteryBridge {
                 String decoded = new JSONArray("[" + raw + "]").getString(0); JSONArray rows = new JSONArray(decoded);
                 if (rows.length() < 1) throw new Exception("未解析到开奖记录");
                 prefs.edit().putString("lottery_" + code, rows.toString()).putLong("lottery_" + code + "_time", System.currentTimeMillis()).apply();
-                if ("TJSSC".equals(code)) main.post(() -> load("XJSSC")); else finishSuccess();
+                if (syncBoth && "TJSSC".equals(code)) main.post(() -> load("XJSSC")); else finishSuccess();
             } catch (Exception e) { fail(code + ": " + e.getMessage()); }
         });
     }
@@ -89,7 +93,7 @@ public class LotteryBridge {
         prefs.edit().putString("lottery_last_error", error).apply(); scheduleNext(intervalMs());
     }
     /** 按开奖时刻和营业时间精准触发，默认开奖后30秒抓取。 */
-    private void scheduleInitial() { main.removeCallbacks(autoSync); main.postDelayed(autoSync, 3000L); }
+    private void scheduleInitial() { scheduleNext(0); }
     private boolean inWindow(String code, Calendar c) {
         int h = c.get(Calendar.HOUR_OF_DAY), m = c.get(Calendar.MINUTE);
         int minute = h * 60 + m;
@@ -101,18 +105,19 @@ public class LotteryBridge {
         return minute >= 10 * 60 || minute <= 2 * 60;
     }
     private long preciseNextDelay() {
-        Calendar now = Calendar.getInstance(); long nowMs = now.getTimeInMillis(); long best = Long.MAX_VALUE;
+        Calendar now = Calendar.getInstance(); long nowMs = now.getTimeInMillis(); long best = Long.MAX_VALUE; String bestCode = "TJSSC";
         for (int h = 0; h <= 48; h++) for (int m = 0; m < 60; m++) {
             Calendar tj = (Calendar) now.clone(); tj.add(Calendar.HOUR_OF_DAY, h); tj.set(Calendar.MINUTE, m); tj.set(Calendar.SECOND, 40); tj.set(Calendar.MILLISECOND, 0);
-            if (m % 20 == 3 && inWindow("TJSSC", tj)) best = Math.min(best, tj.getTimeInMillis() + triggerDelayMs() - nowMs);
+            if (m % 20 == 3 && inWindow("TJSSC", tj) && tj.getTimeInMillis() + triggerDelayMs() > nowMs && tj.getTimeInMillis() + triggerDelayMs() - nowMs < best) { best = tj.getTimeInMillis() + triggerDelayMs() - nowMs; bestCode = "TJSSC"; }
             Calendar xj = (Calendar) now.clone(); xj.add(Calendar.HOUR_OF_DAY, h); xj.set(Calendar.MINUTE, m); xj.set(Calendar.SECOND, 7); xj.set(Calendar.MILLISECOND, 0);
-            if (m % 20 == 0 && inWindow("XJSSC", xj)) best = Math.min(best, xj.getTimeInMillis() + triggerDelayMs() - nowMs);
+            if (m % 20 == 0 && inWindow("XJSSC", xj) && xj.getTimeInMillis() + triggerDelayMs() > nowMs && xj.getTimeInMillis() + triggerDelayMs() - nowMs < best) { best = xj.getTimeInMillis() + triggerDelayMs() - nowMs; bestCode = "XJSSC"; }
         }
-        return Math.max(1000L, best == Long.MAX_VALUE ? 300000L : best);
+        if (best == Long.MAX_VALUE) { scheduledCode = "TJSSC"; return 300000L; }
+        scheduledCode = bestCode; return Math.max(1000L, best);
     }
     private long triggerDelayMs() { return Math.max(30000L, Math.min(60000L, prefs.getInt("lottery_trigger_delay_sec", 30) * 1000L)); }
-    private void scheduleNext(long ignored) { main.removeCallbacks(autoSync); prefs.edit().putLong("lottery_next_sync", System.currentTimeMillis() + preciseNextDelay()).apply(); main.postDelayed(autoSync, preciseNextDelay()); }
-    private final Runnable autoSync = this::requestSync;
+    private void scheduleNext(long ignored) { main.removeCallbacks(autoSync); long delay = preciseNextDelay(); prefs.edit().putLong("lottery_next_sync", System.currentTimeMillis() + delay).apply(); main.postDelayed(autoSync, delay); }
+    private final Runnable autoSync = () -> requestScheduled(scheduledCode.isEmpty() ? "TJSSC" : scheduledCode);
 
     public String getRows(String code) { return prefs.getString("lottery_" + code, "[]"); }
     public String statusJson() {
