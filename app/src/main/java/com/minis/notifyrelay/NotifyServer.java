@@ -598,7 +598,7 @@ public class NotifyServer {
         + "<div class=stat><div class=si><div class=sl>HTTP_PORT</div><div class=sv id=port>9531</div></div>"
         + "<div class=si><div class=sl>NOTIFICATIONS</div><div class=sv id=total>-</div></div></div>"
         + "<div class=ip id=ipbox>[ LAN ] initializing…</div></div>"
- "+ "<div class=card><h1>⚙️ 修改端口</h1>"
+        + "<div class=card><h1>⚙️ 修改端口</h1>"
         + "<input id=newport type=number value=9531 placeholder=端口号>"
         + "<button class=btn onclick=chport()>修改端口</button>"
         + "<div id=portresult style=margin-top:8px;font-size:13px></div></div>"
@@ -619,6 +619,6 @@ public class NotifyServer {
         + "async function sendOne(){const t=document.getElementById('t').value;const b=document.getElementById('b').value;document.getElementById('r').textContent='发送中...';try{const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})});const d=await r.json();document.getElementById('r').innerHTML=d.ok?'<span style=color:#22c55e>✅已发送</span>':'<span style=color:#ef4444>❌失败</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "async function tbatch(){document.getElementById('r').textContent='批量发送中...';try{const arr=[{title:'批量1',body:'第一条通知'},{title:'批量2',body:'第二条通知'},{title:'批量3',body:'第三条通知'}];const r=await fetch('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notifications:arr})});const d=await r.json();document.getElementById('r').innerHTML='<span style=color:#22c55e>✅发送'+d.sent+'条 失败'+d.failed+'条</span>';l();lr();}catch(e){document.getElementById('r').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
         + "async function chport(){const p=document.getElementById('newport').value;document.getElementById('portresult').textContent='修改中...';try{const r=await fetch('/port',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({port:parseInt(p)})});const d=await r.json();if(d.ok){document.getElementById('portresult').innerHTML='<span style=color:#22c55e>✅端口已改为'+d.new_port+' 请刷新</span>';setTimeout(()=>location.reload(),2000);}else{document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+(d.error||'失败')+'</span>';}}catch(e){document.getElementById('portresult').innerHTML='<span style=color:#ef4444>❌'+e+'</span>';}}"
-        + "ap();l();lr();peers();mods();setInterval(()=>{l();lr();peers();mods();},3000);"
+        + "l();lr();setInterval(()=>{l();lr();},3000);"
         + "</script></body></html>";
 }
