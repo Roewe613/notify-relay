@@ -615,7 +615,7 @@ public class NotifyServer {
         + "<div class=card><h1>🧩 独立扩展模块</h1><div class=ip>9531 核心通知始终独立运行；9533 专用于开奖代理。</div>"
         + "<div id=lotteryProxy class=ip>开奖代理 9533：检查中…</div><button class=btn onclick=location.href='/lottery'>打开开奖代理配置</button>"
         + "<button class=btn id=lanToggle onclick=toggleMod('lan')>局域网发现：关闭</button><button class=btn id=fileToggle onclick=toggleMod('file')>文件传输：关闭</button>"
-        + "<div id=modules class=ip>UDP 9532｜文件 9534｜按需启用</div></div>
+        + "<div id=modules class=ip>UDP 9532｜文件 9534｜按需启用</div></div>"
         + "<div class=card><h1>📱 局域网设备</h1>"
         + "<input id=lanKey placeholder=配对密钥（所有手机填相同内容）>"
         + "<button class=btn onclick=saveKey()>保存并发现</button><button class=btn onclick=sendPeers()>群发文字</button>"
