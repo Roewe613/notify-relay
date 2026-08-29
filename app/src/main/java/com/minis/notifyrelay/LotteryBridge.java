@@ -19,6 +19,7 @@ import java.net.Socket;
 import java.net.URI;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Calendar;
 import java.util.concurrent.Executors;
 
 /** Android WebView只读公开开奖记录；不登录、不下注、不复用试玩会话。 */
