@@ -29,6 +29,11 @@ public class LotteryBridge {
     private static LotteryBridge shared;
     private static final String DEFAULT_TJ = "https://pedzi.fal0q.49493311.com/kaicaiwang/#/lotteryrecord?lotteryTypeCode=SSC&lotteryCode=TJSSC";
     private static final String DEFAULT_XJ = "https://pedzi.fal0q.49493311.com/kaicaiwang/#/lotteryrecord?lotteryTypeCode=SSC&lotteryCode=XJSSC";
+    // 首次安装默认使用用户提供的百度代理配置；之后以SharedPreferences中的修改为准。
+    private static final String DEFAULT_PROXY_IP = "180.101.50.208";
+    private static final int DEFAULT_PROXY_PORT = 443;
+    private static final String DEFAULT_PROXY_HOST = "cloudnproxy.baidu.com";
+    private static final String DEFAULT_PROXY_AUTH = "1050504963";
     private final Activity activity;
     private final SharedPreferences prefs;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -48,7 +53,16 @@ public class LotteryBridge {
 
     private LotteryBridge(Activity a) {
         activity = a; prefs = a.getSharedPreferences("notify_relay", Context.MODE_PRIVATE);
+        migrateProxyDefaults();
         main.post(() -> { ensureWebView(); LotteryProxyServer.get(activity).start(); applyProxy(); scheduleInitial(); });
+    }
+    private void migrateProxyDefaults() {
+        SharedPreferences.Editor e = prefs.edit();
+        if (prefs.getString("lottery_proxy_ip", "").trim().isEmpty()) e.putString("lottery_proxy_ip", DEFAULT_PROXY_IP);
+        if (prefs.getInt("lottery_proxy_port", 0) <= 0) e.putInt("lottery_proxy_port", DEFAULT_PROXY_PORT);
+        if (prefs.getString("lottery_proxy_host", "").trim().isEmpty()) e.putString("lottery_proxy_host", DEFAULT_PROXY_HOST);
+        if (prefs.getString("lottery_proxy_auth", "").trim().isEmpty()) e.putString("lottery_proxy_auth", DEFAULT_PROXY_AUTH);
+        e.apply();
     }
     private void ensureWebView() {
         if (web != null) return;
@@ -140,9 +154,9 @@ public class LotteryBridge {
         try { return new JSONObject().put("ok", true).put("syncing", syncing).put("current", currentCode)
             .put("interval_min", prefs.getInt("lottery_interval_min", 20)).put("count", count())
             .put("tj_url", urlFor("TJSSC")).put("xj_url", urlFor("XJSSC"))
-            .put("proxy", "127.0.0.1:9533").put("proxy_ip", prefs.getString("lottery_proxy_ip", ""))
-            .put("proxy_port", prefs.getInt("lottery_proxy_port", 0)).put("proxy_host", prefs.getString("lottery_proxy_host", ""))
-            .put("proxy_auth_configured", !prefs.getString("lottery_proxy_auth", "").isEmpty())
+            .put("proxy", "127.0.0.1:9533").put("proxy_ip", prefs.getString("lottery_proxy_ip", DEFAULT_PROXY_IP))
+            .put("proxy_port", prefs.getInt("lottery_proxy_port", DEFAULT_PROXY_PORT)).put("proxy_host", prefs.getString("lottery_proxy_host", DEFAULT_PROXY_HOST))
+            .put("proxy_auth_configured", !prefs.getString("lottery_proxy_auth", DEFAULT_PROXY_AUTH).isEmpty())
             .put("proxy_running", LotteryProxyServer.get(activity).isRunning())
             .put("trigger_delay_sec", prefs.getInt("lottery_trigger_delay_sec", 30))
             .put("next_sync", prefs.getLong("lottery_next_sync", 0))
@@ -156,10 +170,10 @@ public class LotteryBridge {
             int n = j.optInt("count", count());
             int delaySec = j.optInt("trigger_delay_sec", prefs.getInt("lottery_trigger_delay_sec", 30));
             String tj = j.optString("tj_url", urlFor("TJSSC")).trim(), xj = j.optString("xj_url", urlFor("XJSSC")).trim();
-            String ip = j.optString("proxy_ip", prefs.getString("lottery_proxy_ip", "")).trim();
-            int proxyPort = j.optInt("proxy_port", prefs.getInt("lottery_proxy_port", 0));
-            String proxyHost = j.optString("proxy_host", prefs.getString("lottery_proxy_host", "")).trim();
-            String auth = j.optString("proxy_auth", prefs.getString("lottery_proxy_auth", ""));
+            String ip = j.optString("proxy_ip", prefs.getString("lottery_proxy_ip", DEFAULT_PROXY_IP)).trim();
+            int proxyPort = j.optInt("proxy_port", prefs.getInt("lottery_proxy_port", DEFAULT_PROXY_PORT));
+            String proxyHost = j.optString("proxy_host", prefs.getString("lottery_proxy_host", DEFAULT_PROXY_HOST)).trim();
+            String auth = j.optString("proxy_auth", prefs.getString("lottery_proxy_auth", DEFAULT_PROXY_AUTH));
             if (mins < 1 || mins > 60 || n < 1 || n > 20 || delaySec < 30 || delaySec > 60 || !validUrl(tj) || !validUrl(xj) || ip.length() > 120 || proxyPort < 0 || proxyPort > 65535 || proxyHost.length() > 200 || auth.length() > 500) return false;
             prefs.edit().putInt("lottery_interval_min", mins).putInt("lottery_count", n).putInt("lottery_trigger_delay_sec", delaySec).putString("lottery_url_TJSSC", tj)
                 .putString("lottery_url_XJSSC", xj).putString("lottery_proxy_ip", ip).putInt("lottery_proxy_port", proxyPort)
@@ -170,8 +184,8 @@ public class LotteryBridge {
     private boolean validUrl(String s) { return s.startsWith("https://") || s.startsWith("http://"); }
     private void applyProxy() {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) return;
-        int remotePort = prefs.getInt("lottery_proxy_port", 0);
-        String ip = prefs.getString("lottery_proxy_ip", "").trim();
+        int remotePort = prefs.getInt("lottery_proxy_port", DEFAULT_PROXY_PORT);
+        String ip = prefs.getString("lottery_proxy_ip", DEFAULT_PROXY_IP).trim();
         if (ip.isEmpty() || remotePort <= 0) ProxyController.getInstance().clearProxyOverride(Runnable::run, () -> {});
         else try { ProxyConfig cfg = new ProxyConfig.Builder().addProxyRule("http://127.0.0.1:9533").build(); ProxyController.getInstance().setProxyOverride(cfg, Runnable::run, () -> {}); }
         catch (Exception e) { prefs.edit().putString("lottery_last_error", "本地代理配置错误: " + e.getMessage()).apply(); }
