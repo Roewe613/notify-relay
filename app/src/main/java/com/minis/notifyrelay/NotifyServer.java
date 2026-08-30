@@ -497,6 +497,12 @@ public class NotifyServer {
                 compact.setTextViewText(R.id.hub_title, title);
                 compact.setTextViewText(R.id.hub_body, content);
             }
+            // 开奖验证标题包含彩种名和期号，单独缩小避免通知卡换行；其他通知保持原字号。
+            if (title.contains("开奖验证") || title.contains("验证 期") || title.contains("不定位验证")) {
+                compact.setTextViewTextSize(R.id.hub_title, android.util.TypedValue.COMPLEX_UNIT_SP, 10f);
+                compact.setTextViewTextSize(R.id.hub_body, android.util.TypedValue.COMPLEX_UNIT_SP, 8f);
+                compact.setInt(R.id.hub_body, "setMaxLines", 4);
+            }
             Notification notif = new Notification.Builder(context, CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(content)
